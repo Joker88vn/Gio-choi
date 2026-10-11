@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Giờ Chơi</string>
+    <string name="a11y_desc">Theo dõi ứng dụng đang mở để giới hạn thời gian dùng máy của con. Không đọc nội dung trên màn hình.</string>
+    <color name="icon_bg">#2E7D6B</color>
+</resources>
