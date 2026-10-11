@@ -3,25 +3,29 @@ package vn.daopham.giochoi
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 
 /**
- * Màn hình khoá phủ lên trên mọi thứ. Có bàn phím số riêng để nhập mật khẩu
- * (không phụ thuộc bàn phím hệ thống).
+ * Màn hình khoá phủ lên trên mọi thứ, có bàn phím số riêng để bố mẹ nhập mật khẩu.
  */
 class LockOverlay(private val svc: GuardService) {
 
     private val ctx: Context = ContextThemeWrapper(svc, android.R.style.Theme_DeviceDefault)
     private val wm = svc.getSystemService(WindowManager::class.java)
+    private val handler = Handler(Looper.getMainLooper())
     private var root: View? = null
     private var shownKey: String? = null
     private var wrong = 0
-    private var waitUntil = 0L
 
     fun show(reason: Reason) {
         if (root != null && shownKey == reason.key) return
@@ -38,6 +42,8 @@ class LockOverlay(private val svc: GuardService) {
             wm.addView(view, lp)
             root = view
             shownKey = reason.key
+            view.alpha = 0f
+            view.animate().alpha(1f).setDuration(250).start()
         } catch (_: Exception) { }
     }
 
@@ -49,79 +55,72 @@ class LockOverlay(private val svc: GuardService) {
 
     private fun build(reason: Reason): View {
         val c = ctx
-        val name = reason.pkg?.let { c.appLabel(it) } ?: ""
-        val (title, msg) = when (reason) {
-            is Reason.Total -> "Hết giờ dùng máy hôm nay" to
-                "Hôm nay con đã dùng ${fmtDuration(Store.totalUsedMs(c))}. Mai mình chơi tiếp nhé!"
-            is Reason.AppLimit -> "Hết giờ dùng $name" to
-                "Hôm nay con đã dùng $name đủ thời gian cho phép. Con chọn việc khác nhé!"
-            is Reason.Blocked -> "$name đang bị chặn" to "Ứng dụng này cần bố mẹ cho phép."
-            is Reason.Protected -> "Cần mật khẩu của bố mẹ" to "Phần này chỉ dành cho bố mẹ."
-        }
-
         val white = Color.WHITE
-        val soft = 0xFFB0BEC5.toInt()
+        val soft = 0xC7FFFFFF.toInt()
+        val name = reason.pkg?.let { c.appLabel(it) } ?: ""
 
-        val col = c.vbox().apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(c.dp(24), c.dp(32), c.dp(24), c.dp(32))
+        val (title, msg) = when (reason) {
+            is Reason.Total -> "Hết giờ dùng máy rồi" to
+                "Hôm nay con đã chơi đủ giờ. Nghỉ ngơi, mai mình chơi tiếp nhé!"
+            is Reason.AppLimit -> "Hết giờ $name hôm nay" to
+                "Con đã dùng $name đủ thời gian cho phép. Chọn việc khác nhé!"
+            is Reason.Blocked -> "$name chưa được mở" to
+                "Ứng dụng này cần bố mẹ cho phép."
+            is Reason.Protected -> "Khu vực của bố mẹ" to
+                "Phần cài đặt này cần mật khẩu của bố mẹ."
         }
-        col.add(c.label(if (reason is Reason.Protected) "🔒" else "⏰", 56f).centered())
-        col.add(c.label(title, 26f, white, bold = true).centered(), topDp = 8)
-        col.add(c.label(msg, 17f, 0xFFCFD8DC.toInt()).centered(), topDp = 8)
 
-        val status = c.label("Bố mẹ nhập mật khẩu để mở", 15f, soft).centered()
-        val dots = c.label(" ", 30f, white).centered()
-        col.add(status, topDp = 28)
-        col.add(dots, topDp = 4)
+        val col = c.vbox().apply { gravity = Gravity.CENTER_HORIZONTAL }
 
-        val pin = StringBuilder()
-        val keypad = c.vbox().apply { gravity = Gravity.CENTER_HORIZONTAL }
+        // --- Biểu tượng ---
+        val icon = if (reason.pkg != null && reason !is Reason.Protected) c.appIcon(reason.pkg) else null
+        if (icon != null) {
+            val frame = FrameLayout(c).apply {
+                background = c.rounded(Pal.GLASS, 28, Pal.GLASS_LINE)
+                setPadding(c.dp(16), c.dp(16), c.dp(16), c.dp(16))
+                addView(ImageView(c).apply { setImageDrawable(icon) })
+            }
+            col.add(frame, c.dp(100), c.dp(100))
+        } else {
+            val emoji = if (reason is Reason.Protected) "🔒" else "🌙"
+            col.add(c.label(emoji, 44f, white).centered().apply {
+                background = c.oval(Pal.GLASS, Pal.GLASS_LINE)
+            }, c.dp(104), c.dp(104))
+        }
+
+        col.add(c.label(title, 30f, white, SANS_BOLD).centered(), topDp = 22)
+        col.add(c.label(msg, 17f, soft).centered(), topDp = 8)
+
+        if (reason is Reason.Total) {
+            col.add(c.chip("Hôm nay đã dùng ${fmtDuration(Store.totalUsedMs(c))}", white, Pal.GLASS), WRAP, topDp = 16)
+        }
+
+        // --- Bàn phím mật khẩu + lựa chọn sau khi mở ---
         val grants = c.vbox().apply { gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE }
-
-        fun press(k: String) {
-            val now = System.currentTimeMillis()
-            if (now < waitUntil) {
-                status.text = "Sai quá nhiều lần. Đợi ${(waitUntil - now) / 1000 + 1} giây."
-                return
-            }
-            when (k) {
-                "⌫" -> if (pin.isNotEmpty()) pin.setLength(pin.length - 1)
-                "OK" -> {
-                    if (Store.checkPassword(c, pin.toString())) {
-                        wrong = 0
-                        keypad.visibility = View.GONE
-                        dots.visibility = View.GONE
-                        status.text = "Đã mở khoá. Bố mẹ chọn:"
-                        grants.visibility = View.VISIBLE
-                    } else {
-                        wrong++
-                        status.text = "Sai mật khẩu"
-                        if (wrong >= 5) {
-                            wrong = 0
-                            waitUntil = now + 30_000
-                            status.text = "Sai 5 lần. Đợi 30 giây rồi thử lại."
-                        }
-                    }
-                    pin.setLength(0)
+        lateinit var pad: PinPad
+        pad = PinPad(c, dark = true) { pin ->
+            if (Store.checkPassword(c, pin)) {
+                wrong = 0
+                pad.visibility = View.GONE
+                grants.visibility = View.VISIBLE
+            } else {
+                wrong++
+                pad.shake()
+                if (wrong >= 5) {
+                    wrong = 0
+                    pad.locked = true
+                    pad.setStatus("Sai 5 lần. Đợi 30 giây rồi thử lại.", error = true)
+                    handler.postDelayed({
+                        pad.locked = false
+                        pad.setStatus("Bố mẹ nhập mật khẩu để mở")
+                    }, 30_000)
+                } else {
+                    pad.setStatus("Sai mật khẩu, thử lại nhé", error = true)
                 }
-                else -> if (pin.length < 12) pin.append(k)
             }
-            dots.text = if (pin.isEmpty()) " " else "●".repeat(pin.length)
         }
-
-        val keys = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("⌫", "0", "OK"))
-        for (rowKeys in keys) {
-            val row = c.hbox().apply { gravity = Gravity.CENTER }
-            for (k in rowKeys) {
-                val b = c.button(k) { press(k) }.apply { textSize = 22f }
-                val lp = LinearLayout.LayoutParams(c.dp(88), c.dp(68))
-                lp.setMargins(c.dp(4), c.dp(4), c.dp(4), c.dp(4))
-                row.addView(b, lp)
-            }
-            keypad.add(row, WRAP)
-        }
-        col.add(keypad, WRAP, topDp = 8)
+        pad.setStatus("Bố mẹ nhập mật khẩu để mở")
+        col.add(pad, WRAP, topDp = 30)
 
         fun grant(min: Int) {
             Store.grant(c, reason, min)
@@ -129,35 +128,42 @@ class LockOverlay(private val svc: GuardService) {
             svc.reevaluate()
         }
 
-        val options: List<Pair<String, Int>> = if (reason is Reason.Protected)
-            listOf("10 phút" to 10, "30 phút" to 30, "Cả hôm nay" to -1)
+        grants.add(c.label("Đã mở khoá · Cho thêm thời gian", 15f, soft).centered())
+        val options = if (reason is Reason.Protected)
+            listOf("10 phút" to 10, "30 phút" to 30)
         else
-            listOf("+15 phút" to 15, "+30 phút" to 30, "+1 giờ" to 60, "Cả hôm nay" to -1)
-
-        val gRow = c.hbox().apply { gravity = Gravity.CENTER }
+            listOf("+15 phút" to 15, "+30 phút" to 30, "+1 giờ" to 60)
+        val row = c.hbox().apply { gravity = Gravity.CENTER }
         for ((text, min) in options) {
-            val b = c.button(text) { grant(min) }.apply { textSize = 18f }
-            val lp = LinearLayout.LayoutParams(WRAP, c.dp(64))
-            lp.setMargins(c.dp(6), c.dp(6), c.dp(6), c.dp(6))
-            gRow.addView(b, lp)
+            val b = c.pill(text, Btn.GLASS) { grant(min) }.apply { textSize = 18f; minHeight = c.dp(60) }
+            row.addView(b, LinearLayout.LayoutParams(c.dp(140), WRAP).apply { setMargins(c.dp(6), 0, c.dp(6), 0) })
         }
-        grants.add(gRow, WRAP)
-        grants.add(c.button("Khoá lại") {
+        grants.add(row, WRAP, topDp = 16)
+        grants.add(c.pill("Mở không giới hạn cả hôm nay", Btn.FILLED) { grant(-1) }.apply {
+            textSize = 17f; minHeight = c.dp(58)
+        }, MATCH, topDp = 12)
+        grants.add(c.pill("Khoá lại", Btn.GLASS) {
             grants.visibility = View.GONE
-            keypad.visibility = View.VISIBLE
-            dots.visibility = View.VISIBLE
-            status.text = "Bố mẹ nhập mật khẩu để mở"
-        }, WRAP, topDp = 8)
-        col.add(grants, WRAP, topDp = 8)
+            pad.visibility = View.VISIBLE
+            pad.setStatus("Bố mẹ nhập mật khẩu để mở")
+        }, WRAP, topDp = 12)
+        col.add(grants, MATCH, topDp = 30)
 
         if (reason !is Reason.Total) {
-            col.add(c.button("Về màn hình chính") { svc.goHome() }.apply { textSize = 18f }, WRAP, topDp = 24)
+            col.add(c.pill("Về màn hình chính", Btn.GLASS) { svc.goHome() }, WRAP, topDp = 28)
         }
 
+        // --- Khung ngoài: nền gradient, nội dung ở giữa ---
+        val maxW = minOf(svc.resources.displayMetrics.widthPixels - c.dp(48), c.dp(560))
+        val frame = FrameLayout(c).apply {
+            setPadding(0, c.dp(48), 0, c.dp(48))
+            addView(col, FrameLayout.LayoutParams(maxW, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        }
         return ScrollView(c).apply {
             isFillViewport = true
-            setBackgroundColor(0xF5101820.toInt())
-            addView(col.apply { gravity = Gravity.CENTER })
+            isVerticalScrollBarEnabled = false
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Pal.NIGHT_TOP, Pal.NIGHT_BOTTOM))
+            addView(frame)
         }
     }
 }
