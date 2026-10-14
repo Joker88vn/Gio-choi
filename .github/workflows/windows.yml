@@ -133,7 +133,7 @@ jobs:
             '--java-options', '-Dfile.encoding=UTF-8',
             '--java-options', '-Dsun.java2d.d3d=true',
             '--add-modules', 'java.desktop,java.prefs,java.logging,jdk.unsupported',
-            '--jlink-options', '--strip-debug --no-man-pages --no-header-files --compress=zip-9'
+            '--jlink-options', '--strip-debug --no-man-pages --no-header-files --compress=zip-0'
           )
           $win = @('--win-dir-chooser', '--win-shortcut', '--win-shortcut-prompt', '--win-menu',
                    '--win-menu-group', 'COD Master', '--win-per-user-install',
