@@ -19,3 +19,9 @@ Lọc siêu trầm 28 Hz → EQ (kệ 100 Hz, chuông 300 Hz, chuông 3 kHz, k�
 ## Build
 GitHub Actions tự build khi đẩy lên nhánh `audio-master`. APK nằm ở Releases (`codmaster-N`)
 và nhánh `apk-codmaster`.
+
+## Bản Windows
+Mã nguồn ở `desktop/` (Java Swing, dùng chung lõi `dsp` với bản Android). GitHub Actions
+(`windows.yml`) đóng gói bằng jpackage kèm Java và ffmpeg: bộ cài `CODMaster-Setup-*.exe`
+và bản chạy liền `CODMaster-Portable-*.zip`, ở Releases `codmaster-win-N`.
+Thêm: kéo thả file, phím Space (phát/dừng), B (đổi Gốc ↔ Master), xuất MP3 320k.
