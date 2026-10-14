@@ -87,12 +87,16 @@ jobs:
           Invoke-WebRequest https://repo1.maven.org/maven2/com/formdev/flatlaf/3.5.4/flatlaf-3.5.4.jar -OutFile build\input\flatlaf.jar
           $ff = "build\input\ffmpeg.exe"
           "{0:N1} MB" -f ((Get-Item $ff).Length / 1MB)
+          $ErrorActionPreference = 'Continue'
           [IO.File]::WriteAllBytes("$pwd\z.raw", [byte[]]::new(44100 * 8 * 2))
-          & $ff -hide_banner -loglevel error -y -f f32le -ar 44100 -ac 2 -i z.raw -c:a libmp3lame -b:a 320k t.mp3
-          & $ff -hide_banner -loglevel error -y -i t.mp3 -vn -ac 2 -acodec pcm_f32le -f f32le t.raw
-          $n = (Get-Item t.raw).Length
+          $o1 = & $ff -hide_banner -y -f f32le -ar 44100 -ac 2 -i z.raw -c:a libmp3lame -b:a 320k t.mp3 2>&1 | Out-String
+          $o2 = & $ff -hide_banner -y -i t.mp3 -vn -ac 2 -acodec pcm_f32le -f f32le t.raw 2>&1 | Out-String
+          $n = if (Test-Path t.raw) { (Get-Item t.raw).Length } else { 0 }
           "decoded bytes: $n"
-          if ($n -lt 600000) { throw "ffmpeg smoke test failed" }
+          if ($n -lt 600000) {
+            foreach ($l in ($o1 + "`n----`n" + $o2) -split "`r?`n") { if ($l.Trim()) { Write-Output "::error::$l" } }
+            exit 1
+          }
 
       - name: Biên dịch
         shell: bash
