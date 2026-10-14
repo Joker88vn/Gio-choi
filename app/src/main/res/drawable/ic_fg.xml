@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- dạng sóng kiểu thanh, màu hổ phách -->
+    <path android:strokeColor="#F5A623" android:strokeWidth="5" android:strokeLineCap="round"
+        android:pathData="M36,48L36,60M44,40L44,68M52,34L52,74M60,42L60,66M68,46L68,62M76,51L76,57" />
+    <path android:strokeColor="#F5A623" android:strokeWidth="5" android:strokeLineCap="round"
+        android:pathData="M28,52L28,56" />
+</vector>
