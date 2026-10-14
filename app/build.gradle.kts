@@ -11,8 +11,8 @@ android {
         applicationId = "vn.daopham.codmaster"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Khoá ký cố định: các bản build sau cài đè lên bản trước được

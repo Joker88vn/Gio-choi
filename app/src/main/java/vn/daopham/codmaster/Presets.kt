@@ -14,6 +14,18 @@ object Presets {
             targetLufs = -11.0; bassDb = 2.0; mudDb = -1.5; presenceDb = 1.5; airDb = 2.0
             warmth = 0.4; comp = 0.55; width = 1.15
         },
+        Preset("Bolero", "Giọng ấm, mượt, nổi lời · −13") {
+            targetLufs = -13.0; bassDb = 1.0; mudDb = -1.5; presenceDb = 2.0; airDb = 0.5
+            warmth = 0.55; comp = 0.45; width = 1.0
+        },
+        Preset("Trữ tình / Quê hương", "Tròn, sâu lắng, tự nhiên · −14") {
+            targetLufs = -14.0; bassDb = 1.5; mudDb = -1.0; presenceDb = 1.5; airDb = 1.0
+            warmth = 0.45; comp = 0.35; width = 1.1
+        },
+        Preset("Ballad Việt", "Sáng, rộng, giọng trong · −12") {
+            targetLufs = -12.0; bassDb = 1.5; mudDb = -1.5; presenceDb = 2.0; airDb = 2.0
+            warmth = 0.3; comp = 0.45; width = 1.15
+        },
         Preset("Giọng hát rõ", "Đẩy lời hát lên trước · −13") {
             targetLufs = -13.0; bassDb = 0.0; mudDb = -2.0; presenceDb = 2.5; airDb = 1.5
             warmth = 0.2; comp = 0.4; width = 1.05
@@ -21,6 +33,10 @@ object Presets {
         Preset("Ấm / Acoustic", "Mộc, tròn, tự nhiên · −14") {
             targetLufs = -14.0; bassDb = 1.5; mudDb = -1.0; presenceDb = 0.0; airDb = 0.5
             warmth = 0.5; comp = 0.3; width = 1.0
+        },
+        Preset("Remix / Vinahouse", "Bass dồn, to, sôi động · −8.5") {
+            targetLufs = -8.5; bassDb = 3.5; mudDb = -1.5; presenceDb = 1.0; airDb = 2.5
+            warmth = 0.45; comp = 0.75; width = 1.2
         },
         Preset("To & đậm", "Pop / EDM, lớn tối đa · −9") {
             targetLufs = -9.0; bassDb = 2.5; mudDb = -1.0; presenceDb = 1.0; airDb = 2.0
