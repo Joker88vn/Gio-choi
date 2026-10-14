@@ -16,7 +16,57 @@ env:
   APP_VERSION: 1.2.0
 
 jobs:
+  ffmpeg:
+    # ffmpeg rút gọn: chỉ giải mã âm thanh + mã hoá MP3 (LAME), liên kết tĩnh — nhẹ ~3 MB
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: out/ffmpeg.exe
+          key: ffmpeg-audio-7.1-lame3.100-v1
+      - name: Công cụ biên dịch chéo
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64 nasm make pkg-config
+      - name: Build LAME
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fL --retry 5 -o lame.tgz https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+          tar xzf lame.tgz && cd lame-3.100
+          sed -i '/lame_init_old/d' include/libmp3lame.sym
+          ./configure --host=x86_64-w64-mingw32 --prefix=/opt/lame --disable-shared --enable-static \
+            --disable-frontend --disable-decoder --disable-gtktest
+          make -j4 && sudo make install
+      - name: Build ffmpeg (chỉ âm thanh)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fL --retry 5 -o ff.txz https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
+          tar xJf ff.txz && cd ffmpeg-7.1
+          ./configure --target-os=mingw32 --arch=x86_64 --cross-prefix=x86_64-w64-mingw32- \
+            --pkg-config=pkg-config --pkg-config-flags=--static \
+            --disable-everything --disable-autodetect --disable-network --disable-doc \
+            --disable-ffplay --disable-ffprobe --disable-avdevice --disable-swscale --disable-postproc \
+            --enable-avfilter --enable-swresample --enable-w32threads \
+            --disable-debug --enable-stripping \
+            --enable-protocol=file,pipe \
+            --enable-demuxer=mp3,wav,w64,flac,aac,mov,ogg,aiff,asf,matroska,caf,f32le,ape,tta,wv \
+            --enable-decoder=mp3,mp3float,aac,aac_fixed,aac_latm,flac,vorbis,opus,alac,wmav1,wmav2,wmapro,ape,tta,wavpack \
+            --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_s16be,pcm_s24be,pcm_s32be,pcm_f32be,pcm_u8,pcm_alaw,pcm_mulaw \
+            --enable-parser=mpegaudio,aac,aac_latm,flac,vorbis,opus \
+            --enable-muxer=f32le,mp3 --enable-encoder=pcm_f32le,libmp3lame --enable-libmp3lame \
+            --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim,asetpts \
+            --extra-cflags=-I/opt/lame/include --extra-ldflags="-L/opt/lame/lib -static" \
+            --extra-libs="-lmp3lame"
+          make -j4
+          mkdir -p ../out && cp ffmpeg.exe ../out/ffmpeg.exe
+          ls -la ../out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-audio
+          path: out/ffmpeg.exe
+
   windows:
+    needs: ffmpeg
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +76,23 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Tải ffmpeg (giải mã + MP3) và FlatLaf
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-audio
+          path: build/input
+
+      - name: Tải FlatLaf + kiểm tra ffmpeg (giải mã/mã hoá MP3)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force build\input | Out-Null
-          Invoke-WebRequest https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -OutFile ff.zip
-          Expand-Archive ff.zip -DestinationPath ff
-          $exe = Get-ChildItem ff -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          Copy-Item $exe.FullName build\input\ffmpeg.exe
-          Get-ChildItem ff -Recurse -Filter LICENSE.txt | Select-Object -First 1 | Copy-Item -Destination build\input\FFMPEG-LICENSE.txt
           Invoke-WebRequest https://repo1.maven.org/maven2/com/formdev/flatlaf/3.5.4/flatlaf-3.5.4.jar -OutFile build\input\flatlaf.jar
-          & build\input\ffmpeg.exe -hide_banner -version | Select-Object -First 1
+          $ff = "build\input\ffmpeg.exe"
+          "{0:N1} MB" -f ((Get-Item $ff).Length / 1MB)
+          [IO.File]::WriteAllBytes("$pwd\z.raw", [byte[]]::new(44100 * 8 * 2))
+          & $ff -hide_banner -loglevel error -y -f f32le -ar 44100 -ac 2 -i z.raw -c:a libmp3lame -b:a 320k t.mp3
+          & $ff -hide_banner -loglevel error -y -i t.mp3 -vn -ac 2 -acodec pcm_f32le -f f32le t.raw
+          $n = (Get-Item t.raw).Length
+          "decoded bytes: $n"
+          if ($n -lt 600000) { throw "ffmpeg smoke test failed" }
 
       - name: Biên dịch
         shell: bash
@@ -71,7 +127,9 @@ jobs:
             '--icon', 'desktop\icon.ico',
             '--java-options', '-XX:MaxRAMPercentage=60',
             '--java-options', '-Dfile.encoding=UTF-8',
-            '--java-options', '-Dsun.java2d.d3d=true'
+            '--java-options', '-Dsun.java2d.d3d=true',
+            '--add-modules', 'java.desktop,java.prefs,java.logging,jdk.unsupported',
+            '--jlink-options', '--strip-debug --no-man-pages --no-header-files --compress=zip-9'
           )
           $win = @('--win-dir-chooser', '--win-shortcut', '--win-shortcut-prompt', '--win-menu',
                    '--win-menu-group', 'COD Master', '--win-per-user-install',
