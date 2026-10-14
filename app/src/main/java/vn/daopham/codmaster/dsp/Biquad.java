@@ -18,6 +18,15 @@ public final class Biquad {
 
     public void reset() { x1 = x2 = y1 = y2 = 0; }
 
+    /** Đổi hệ số thành bộ chuông mới, giữ nguyên trạng thái (dùng cho EQ động). */
+    public void setPeak(double fs, double f0, double q, double gainDb) {
+        double A = Math.pow(10, gainDb / 40), w = 2 * Math.PI * f0 / fs;
+        double c = Math.cos(w), al = Math.sin(w) / (2 * q);
+        double a0 = 1 + al / A;
+        b0 = (1 + al * A) / a0; b1 = (-2 * c) / a0; b2 = (1 - al * A) / a0;
+        a1 = (-2 * c) / a0; a2 = (1 - al / A) / a0;
+    }
+
     /** K-weighting chuẩn BS.1770 cho tần số mẫu bất kỳ (công thức của libebur128). */
     public static Biquad kShelf(double fs) {
         double f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196;

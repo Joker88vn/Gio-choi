@@ -86,6 +86,8 @@ final class Widgets {
             Theme.roundRect(g2, 0, 0, getWidth(), getHeight(), 16, fill, Theme.LINE);
             g2.dispose();
         }
+        /** Không bao giờ bị ép thấp hơn nội dung (nội dung có thể đổi khi chuyển chế độ). */
+        @Override public Dimension getMinimumSize() { return new Dimension(0, getPreferredSize().height); }
     }
 
     static JLabel label(String s, Font f, Color c) {
@@ -143,7 +145,7 @@ final class Widgets {
             if (icon != null) w += h / 2 + (text == null || text.isEmpty() ? -h / 2 : 0);
             return new Dimension(Math.max(w, h), h);
         }
-        @Override public Dimension getMinimumSize() { return new Dimension(h, h); }
+        @Override public Dimension getMinimumSize() { return isMinimumSizeSet() ? super.getMinimumSize() : new Dimension(h, h); }
 
         private Font fontFor() { return style == Style.FILLED ? Theme.bold(fontSize) : Theme.medium(fontSize); }
 

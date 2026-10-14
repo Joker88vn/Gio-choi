@@ -1,6 +1,7 @@
 package vn.daopham.codmaster.desktop;
 
 import vn.daopham.codmaster.dsp.Mastering;
+import vn.daopham.codmaster.dsp.StemMix;
 import vn.daopham.codmaster.desktop.Widgets.*;
 
 import javax.imageio.ImageIO;
@@ -19,7 +20,7 @@ import java.util.prefs.Preferences;
 
 /** COD Master cho Windows — cửa sổ chính. */
 public final class Main {
-    static final String VERSION = "1.2.0";
+    static final String VERSION = "1.3.0";
 
     public static void main(String[] args) {
         System.setProperty("awt.useSystemAAFontSettings", "lcd");
@@ -58,6 +59,15 @@ public final class Main {
     private volatile boolean cancel = false;
     private final Player player = new Player(() -> SwingUtilities.invokeLater(this::refreshPlayer));
 
+    // chế độ 2 stem
+    private boolean stemMode = false;
+    private AudioEngine.Track singleTrack, vocal, beat;
+    private String singleName = "", vocalName = "", beatName = "";
+    private File singleFile, vocalFile, beatFile;
+    private final StemMix.StemSettings stem = new StemMix.StemSettings();
+    private StemMix.StemSettings masteredStem;
+    private StemMix.Result stemRes;
+
     // ───────────────────────────── giao diện ─────────────────────────────
     private JFrame frame;
     private JLabel fileName, fileInfo;
@@ -73,6 +83,10 @@ public final class Main {
     private JLabel status;
     private Progress progress;
     private Pill cancelBtn;
+    private Segmented modeSeg, tuneTabs;
+    private JPanel trackCards, tunePages;
+    private StemSlot vocalSlot, beatSlot;
+    private final List<ParamRow> stemRows = new ArrayList<>();
 
     private void show() {
         frame = new JFrame("COD Master — Mastering studio");
@@ -96,12 +110,24 @@ public final class Main {
         installDragDrop(root);
         installKeys();
         Presets.ALL.get(0).applyTo(settings);
+        Presets.STEM.get(0).applyTo(stem);
+        refreshParams();
         refreshAll();
         new Timer(40, e -> updatePlayhead()).start();
         frame.setVisible(true);
 
         String demo = System.getProperty("codmaster.demo");
         if (demo != null) loadFile(new File(demo));
+        String dv = System.getProperty("codmaster.demoVocal"), db = System.getProperty("codmaster.demoBeat");
+        if (dv != null && db != null) {
+            modeSeg.setSelected(1);
+            setStemMode(true);
+            if (System.getProperty("codmaster.preset") != null) choosePreset(Integer.getInteger("codmaster.preset"));
+            int tab = Integer.getInteger("codmaster.tab", 0);
+            tuneTabs.setSelected(tab);
+            ((CardLayout) tunePages.getLayout()).show(tunePages, "t" + tab);
+            loadStem(true, new File(dv), () -> loadStem(false, new File(db), this::startMaster));
+        }
     }
 
     // ── đầu trang
@@ -154,7 +180,14 @@ public final class Main {
 
         Card c = new Card(new BorderLayout(), 16);
         VStack cv = new VStack();
-        cv.row(Widgets.caps("Bài nhạc"), 0);
+        HStack ch = new HStack();
+        ch.add(Widgets.caps("Bài nhạc"), 1, 0);
+        modeSeg = new Segmented(new String[]{"1 FILE", "2 STEM"}, 0, 26, i -> setStemMode(i == 1));
+        modeSeg.setToolTipText("2 STEM: nạp riêng giọng hát và nhạc nền (ví dụ stem tách từ Suno) để xử lý riêng từng phần");
+        ch.add(modeSeg, 0, 0);
+        cv.row(ch, 0);
+
+        VStack single = new VStack();
         HStack row = new HStack();
         JComponent tileIcon = new JComponent() {
             @Override protected void paintComponent(Graphics g) {
@@ -169,13 +202,29 @@ public final class Main {
         VStack info = new VStack();
         fileName = Widgets.label("Chưa chọn bài", Theme.medium(14f), Theme.INK);
         fileInfo = Widgets.label("MP3 · WAV · FLAC · M4A · OGG…", Theme.font(12f), Theme.SUB);
+        fileName.setMinimumSize(new Dimension(20, 20));
+        fileInfo.setMinimumSize(new Dimension(20, 16));
         info.row(fileName, 0);
         info.row(fileInfo, 3);
         row.add(info, 1, 12);
-        cv.row(row, 12);
+        single.row(row, 0);
         openBtn = new Pill("Mở file nhạc…", Style.OUTLINE, 40, this::pickFile).icon(Theme.IconKind.OPEN);
-        cv.row(openBtn, 14);
-        cv.row(Widgets.label("hoặc kéo thả file nhạc vào cửa sổ", Theme.font(11.5f), Theme.FAINT), 8);
+        single.row(openBtn, 14);
+        single.row(Widgets.label("hoặc kéo thả file nhạc vào cửa sổ", Theme.font(11.5f), Theme.FAINT), 8);
+
+        VStack stemP = new VStack();
+        vocalSlot = new StemSlot("Giọng hát", Theme.TEAL, () -> pickStem(true));
+        beatSlot = new StemSlot("Nhạc nền", Theme.ACC, () -> pickStem(false));
+        stemP.row(vocalSlot, 0);
+        stemP.row(beatSlot, 8);
+        stemP.row(Widgets.label("<html>Kéo thả cả 2 file vào cửa sổ — tự nhận<br>file “Vocals” và “Instrumental”</html>",
+                Theme.font(11.5f), Theme.FAINT), 8);
+
+        trackCards = new JPanel(new CardLayout());
+        trackCards.setOpaque(false);
+        trackCards.add(single, "single");
+        trackCards.add(stemP, "stem");
+        cv.row(trackCards, 12);
         c.add(cv);
         v.row(c, 0);
 
@@ -254,14 +303,23 @@ public final class Main {
         HStack th = new HStack();
         th.add(Widgets.caps("Tinh chỉnh"), 1, 0);
         Pill reset = new Pill("Đặt lại", Style.GHOST, 26, () -> {
-            Presets.ALL.get(Math.max(0, presetIdx)).applyTo(settings);
-            if (presetIdx < 0) presetIdx = 0;
+            int i = Math.max(0, presetIdx);
+            Presets.ALL.get(i).applyTo(settings);
+            Presets.STEM.get(i).applyTo(stem);
+            presetIdx = i;
             refreshParams(); presetList.repaint(); refreshDirty();
         });
         reset.fontSize = 12f;
         reset.setToolTipText("Về lại thông số của phong cách đang chọn");
         th.add(reset, 0, 0);
         tv.row(th, 0);
+        tunePages = new JPanel(new CardLayout());
+        tunePages.setOpaque(false);
+        tuneTabs = new Segmented(new String[]{"TỔNG", "GIỌNG", "NHẠC NỀN"}, 0, 30,
+                i -> ((CardLayout) tunePages.getLayout()).show(tunePages, "t" + i));
+        tuneTabs.setVisible(false);
+        tv.row(tuneTabs, 10);
+        VStack page0 = new VStack(), page1 = new VStack(), page2 = new VStack();
         for (Presets.Param p : Presets.PARAMS) {
             ParamRow r = new ParamRow(p.title(), p.hint(), p.min(), p.max(), p.step(), p.get().applyAsDouble(settings),
                     p.fmt(), val -> {
@@ -271,8 +329,26 @@ public final class Main {
                         refreshDirty();
                     });
             paramRows.add(r);
-            tv.row(r, paramRows.size() == 1 ? 10 : 4);
+            page0.row(r, paramRows.size() == 1 ? 0 : 4);
         }
+        for (Presets.SParam p : Presets.STEM_PARAMS) {
+            ParamRow r = new ParamRow(p.title(), p.hint(), p.min(), p.max(), p.step(), p.get().applyAsDouble(stem),
+                    p.fmt(), val -> {
+                        p.set().accept(stem, val);
+                        presetIdx = -1;
+                        presetList.repaint();
+                        refreshDirty();
+                    });
+            stemRows.add(r);
+            VStack pg = p.tab() == 1 ? page1 : page2;
+            pg.row(r, pg.getComponentCount() == 0 ? 0 : 4);
+        }
+        page1.filler();
+        page2.filler();
+        tunePages.add(page0, "t0");
+        tunePages.add(page1, "t1");
+        tunePages.add(page2, "t2");
+        tv.row(tunePages, 10);
         tune.add(tv);
         v.row(tune, 0);
 
@@ -403,16 +479,20 @@ public final class Main {
     }
 
     private void refreshFile() {
-        if (track == null) {
+        vocalSlot.set(vocal == null ? null : vocalName, vocal);
+        beatSlot.set(beat == null ? null : beatName, beat);
+        vocalSlot.setEnabledAll(!busy);
+        beatSlot.setEnabledAll(!busy);
+        if (singleTrack == null) {
             fileName.setText("Chưa chọn bài");
             fileInfo.setText("MP3 · WAV · FLAC · M4A · OGG…");
             openBtn.setText("Mở file nhạc…");
         } else {
             FontMetrics fm = fileName.getFontMetrics(fileName.getFont());
-            fileName.setText(Theme.trimToWidth(trackName, fm, 170));
-            fileName.setToolTipText(trackName);
-            fileInfo.setText(String.format(Locale.US, "%.1f kHz · %s · %s", track.sampleRate / 1000.0,
-                    track.srcChannels == 1 ? "Mono" : "Stereo", Theme.fmtTime(track.frames, track.sampleRate)));
+            fileName.setText(Theme.trimToWidth(singleName, fm, 170));
+            fileName.setToolTipText(singleName);
+            fileInfo.setText(String.format(Locale.US, "%.1f kHz · %s · %s", singleTrack.sampleRate / 1000.0,
+                    singleTrack.srcChannels == 1 ? "Mono" : "Stereo", Theme.fmtTime(singleTrack.frames, singleTrack.sampleRate)));
             openBtn.setText("Đổi bài khác…");
         }
     }
@@ -420,11 +500,14 @@ public final class Main {
     private void refreshParams() {
         for (int i = 0; i < Presets.PARAMS.size(); i++)
             paramRows.get(i).setValue(Presets.PARAMS.get(i).get().applyAsDouble(settings));
+        for (int i = 0; i < Presets.STEM_PARAMS.size(); i++)
+            stemRows.get(i).setValue(Presets.STEM_PARAMS.get(i).get().applyAsDouble(stem));
     }
 
     private boolean settingsChanged() {
         Mastering.Settings a = masteredWith, b = settings;
         if (a == null) return true;
+        if (stemMode && !stem.sameAs(masteredStem)) return true;
         return a.targetLufs != b.targetLufs || a.ceilingDb != b.ceilingDb || a.bassDb != b.bassDb || a.mudDb != b.mudDb
                 || a.presenceDb != b.presenceDb || a.airDb != b.airDb || a.warmth != b.warmth || a.comp != b.comp
                 || a.width != b.width;
@@ -433,7 +516,9 @@ public final class Main {
     private void refreshDirty() {
         boolean has = track != null, mastered = masterL != null, changed = mastered && settingsChanged();
         String t;
-        if (!has) t = "Mở một bài nhạc để bắt đầu";
+        if (!has && stemMode) t = vocal == null && beat == null ? "Nạp 2 stem: giọng hát + nhạc nền"
+                : vocal == null ? "Còn thiếu stem giọng hát" : "Còn thiếu stem nhạc nền";
+        else if (!has) t = "Mở một bài nhạc để bắt đầu";
         else if (changed) t = "Cài đặt đã đổi — bấm MASTER LẠI để áp dụng";
         else if (mastered) t = "✓ Đã master — bấm ▶ để nghe, rồi Lưu";
         else t = "Chọn phong cách rồi bấm MASTER";
@@ -460,10 +545,19 @@ public final class Main {
     }
 
     private void refreshStats() {
-        if (track != null) {
+        if (stemMode && stemRes != null && result != null) {
+            tLen.title = "NHƯỜNG CHỖ GIỌNG";
+            tLen.set(Theme.num(stemRes.maxPocketDb), "dB", "khử xì tối đa " + Theme.num(stemRes.maxDeEssDb) + " dB");
+        } else if (stemMode) {
+            tLen.title = "2 STEM";
+            if (track != null) tLen.set(Theme.fmtTime(track.frames, track.sampleRate), "",
+                    String.format(Locale.US, "%.1f kHz · giọng + nhạc nền", track.sampleRate / 1000.0));
+            else tLen.set("—", "", "chưa đủ 2 stem");
+        } else if (track != null) {
+            tLen.title = "BÀI NHẠC";
             tLen.set(Theme.fmtTime(track.frames, track.sampleRate), "",
                     String.format(Locale.US, "%.1f kHz · %s", track.sampleRate / 1000.0, track.srcChannels == 1 ? "mono" : "stereo"));
-        } else tLen.set("—", "", "chưa mở bài");
+        } else { tLen.title = "BÀI NHẠC"; tLen.set("—", "", "chưa mở bài"); }
         Mastering.Result r = result;
         if (r == null) {
             tLufs.set("—", "LUFS", "mục tiêu " + Theme.num(settings.targetLufs));
@@ -500,6 +594,7 @@ public final class Main {
     private void choosePreset(int i) {
         presetIdx = i;
         Presets.ALL.get(i).applyTo(settings);
+        Presets.STEM.get(i).applyTo(stem);
         refreshParams();
         presetList.repaint();
         refreshDirty();
@@ -521,11 +616,11 @@ public final class Main {
     private void loadFile(File f) {
         if (busy) return;
         player.setSource(null);
-        track = null; masterL = masterR = null; result = null; masteredWith = null;
-        origPeaks = masterPeaks = null;
+        singleTrack = null;
+        clearMaster();
+        rebuildActive();
         refreshAll();
         cancel = false;
-        trackFile = f;
         String name = f.getName();
         setBusy(true, "Đang đọc “" + name + "”…", 0);
         new Thread(() -> {
@@ -534,12 +629,11 @@ public final class Main {
                     SwingUtilities.invokeLater(() -> progress.set(x));
                     return !cancel;
                 });
-                float[] pk = WaveView.peaks(t.left, t.right, t.frames);
                 SwingUtilities.invokeLater(() -> {
-                    track = t;
-                    trackName = name;
-                    origPeaks = pk;
-                    player.setSource(t);
+                    singleTrack = t;
+                    singleName = name;
+                    singleFile = f;
+                    rebuildActive();
                     player.useMaster = true;
                     setBusy(false, null, 0);
                     refreshAll();
@@ -565,15 +659,17 @@ public final class Main {
         wave.setData(origPeaks, null, t.frames, t.sampleRate);
         cancel = false;
         Mastering.Settings s = settings.copy();
+        StemMix.StemSettings stemSnap = stemMode ? stem.copy() : null;
+        AudioEngine.Track vSnap = vocal, bSnap = beat;
+        if (stemMode && (vSnap == null || bSnap == null)) return;
         setBusy(true, "Chuẩn bị…", 0);
         refreshPlayer();
         new Thread(() -> {
             try {
                 int n = t.frames;
-                float[] l = java.util.Arrays.copyOf(t.left, n), r = java.util.Arrays.copyOf(t.right, n);
                 long t0 = System.currentTimeMillis();
                 long[] last = {0};
-                Mastering.Result res = Mastering.process(l, r, n, t.sampleRate, s, (f, stage) -> {
+                Mastering.Progress pr = (f, stage) -> {
                     long now = System.currentTimeMillis();
                     if (now - last[0] > 80) {
                         last[0] = now;
@@ -583,11 +679,28 @@ public final class Main {
                         });
                     }
                     return !cancel;
-                });
+                };
+                float[] l, r;
+                Mastering.Result res;
+                StemMix.Result sres = null;
+                if (stemSnap != null) {
+                    l = new float[n];
+                    r = new float[n];
+                    sres = StemMix.process(java.util.Arrays.copyOf(vSnap.left, n), java.util.Arrays.copyOf(vSnap.right, n),
+                            java.util.Arrays.copyOf(bSnap.left, n), java.util.Arrays.copyOf(bSnap.right, n),
+                            n, t.sampleRate, stemSnap, s, l, r, pr);
+                    res = sres.master;
+                } else {
+                    l = java.util.Arrays.copyOf(t.left, n);
+                    r = java.util.Arrays.copyOf(t.right, n);
+                    res = Mastering.process(l, r, n, t.sampleRate, s, pr);
+                }
+                StemMix.Result fsres = sres;
                 float[] pk = WaveView.peaks(l, r, n);
                 double secs = (System.currentTimeMillis() - t0) / 1000.0;
                 SwingUtilities.invokeLater(() -> {
                     masterL = l; masterR = r; result = res; masteredWith = s; masterPeaks = pk;
+                    stemRes = fsres; masteredStem = stemSnap;
                     player.setMaster(l, r);
                     player.useMaster = true;
                     applyMatch();
@@ -634,7 +747,8 @@ public final class Main {
     private void saveFile() {
         if (masterL == null || busy) return;
         String ext = exportFmt == 2 ? ".mp3" : ".wav";
-        String base = trackName.contains(".") ? trackName.substring(0, trackName.lastIndexOf('.')) : trackName;
+        final String base = stemMode ? cleanStemBase(vocalName.isEmpty() ? beatName : vocalName)
+                : trackName.contains(".") ? trackName.substring(0, trackName.lastIndexOf('.')) : trackName;
         FileDialog d = new FileDialog(frame, "Lưu bản master", FileDialog.SAVE);
         String dir = prefs.get("saveDir", trackFile != null ? trackFile.getParent() : null);
         if (dir != null) d.setDirectory(dir);
@@ -672,6 +786,185 @@ public final class Main {
         JOptionPane.showMessageDialog(frame, m, "COD Master", JOptionPane.WARNING_MESSAGE);
     }
 
+    // ───────────────────────────── chế độ 2 stem ─────────────────────────────
+
+    /** Một ô nạp stem: biểu tượng màu, tên, nút chọn. */
+    private final class StemSlot extends HStack {
+        final JLabel name, info;
+        final Pill btn;
+        StemSlot(String title, Color color, Runnable onPick) {
+            JComponent ic = new JComponent() {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = Theme.g2(g);
+                    Theme.roundRect(g2, 0, 0, getWidth(), getHeight(), 10,
+                            new Color(color.getRed(), color.getGreen(), color.getBlue(), 40), null);
+                    Theme.icon(g2, Theme.IconKind.MUSIC, 9, 9, getWidth() - 18, color);
+                    g2.dispose();
+                }
+            };
+            ic.setPreferredSize(new Dimension(40, 40));
+            add(ic, 0, 0);
+            VStack t = new VStack();
+            JLabel cap = Widgets.caps(title);
+            cap.setForeground(color);
+            cap.setFont(Theme.medium(10.5f));
+            t.row(cap, 0);
+            name = Widgets.label("Chưa chọn", Theme.medium(13f), Theme.SUB);
+            info = Widgets.label(" ", Theme.font(11f), Theme.FAINT);
+            name.setMinimumSize(new Dimension(20, 18));
+            info.setMinimumSize(new Dimension(20, 15));
+            t.row(name, 1);
+            t.row(info, 0);
+            add(t, 1, 10);
+            btn = new Pill("Chọn…", Style.OUTLINE, 30, onPick);
+            btn.fontSize = 12f;
+            add(btn, 0, 6);
+        }
+        void set(String n, AudioEngine.Track tr) {
+            if (n == null) {
+                name.setText("Chưa chọn");
+                name.setForeground(Theme.SUB);
+                info.setText(" ");
+                name.setToolTipText(null);
+            } else {
+                name.setText(Theme.trimToWidth(n, name.getFontMetrics(name.getFont()), 104));
+                name.setForeground(Theme.INK);
+                name.setToolTipText(n);
+                info.setText(String.format(Locale.US, "%.1f kHz · %s", tr.sampleRate / 1000.0, Theme.fmtTime(tr.frames, tr.sampleRate)));
+            }
+        }
+        void setEnabledAll(boolean on) { btn.setEnabled(on); }
+    }
+
+    private void setStemMode(boolean on) {
+        if (busy) { modeSeg.setSelected(stemMode ? 1 : 0); return; }
+        if (on == stemMode) return;
+        stemMode = on;
+        modeSeg.setSelected(on ? 1 : 0);
+        player.setSource(null);
+        clearMaster();
+        rebuildActive();
+        ((CardLayout) trackCards.getLayout()).show(trackCards, on ? "stem" : "single");
+        tuneTabs.setVisible(on);
+        tuneTabs.setSelected(0);
+        ((CardLayout) tunePages.getLayout()).show(tunePages, "t0");
+        frame.getContentPane().revalidate();
+        refreshAll();
+    }
+
+    private void clearMaster() {
+        player.setMaster(null, null);
+        masterL = masterR = null;
+        result = null;
+        masteredWith = null;
+        masterPeaks = null;
+        stemRes = null;
+        masteredStem = null;
+    }
+
+    /** Chọn "bản gốc" đang dùng: 1 file, hoặc tổng thô của 2 stem. */
+    private void rebuildActive() {
+        AudioEngine.Track t = null;
+        if (!stemMode) {
+            t = singleTrack;
+            trackName = singleName;
+            trackFile = singleFile;
+        } else if (vocal != null && beat != null) {
+            int n = Math.max(vocal.frames, beat.frames);
+            float[] l = new float[n], r = new float[n];
+            for (int i = 0; i < vocal.frames; i++) { l[i] = vocal.left[i]; r[i] = vocal.right[i]; }
+            for (int i = 0; i < beat.frames; i++) { l[i] += beat.left[i]; r[i] += beat.right[i]; }
+            t = new AudioEngine.Track(vocal.sampleRate, l, r, n, 2);
+            trackName = cleanStemBase(vocalName) + ".wav";
+            trackFile = vocalFile;
+        } else {
+            trackName = "";
+            trackFile = vocalFile != null ? vocalFile : beatFile;
+        }
+        track = t;
+        origPeaks = t == null ? null : WaveView.peaks(t.left, t.right, t.frames);
+        player.setSource(t);
+    }
+
+    static String cleanStemBase(String name) {
+        String b = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+        b = b.replaceAll("(?i)[\\s_\\-]*[\\(\\[]?\\s*(vocals?|vox|acapella|instrumental|inst|beat|karaoke|backing)\\s*[\\)\\]]?", "").trim();
+        return b.isEmpty() ? "bai-nhac" : b;
+    }
+
+    private static boolean looksVocal(File f) {
+        String n = f.getName().toLowerCase(Locale.ROOT);
+        return n.contains("vocal") || n.contains("vox") || n.contains("acapella") || n.contains("a cappella")
+                || n.contains("giong") || n.contains("giọng") || n.contains("voice");
+    }
+
+    private static boolean looksBeat(File f) {
+        String n = f.getName().toLowerCase(Locale.ROOT);
+        return n.contains("instrumental") || n.contains("inst") || n.contains("beat") || n.contains("karaoke")
+                || n.contains("backing") || n.contains("nhac nen") || n.contains("nhạc nền") || n.contains("music");
+    }
+
+    private void dropFiles(List<File> files) {
+        if (busy) return;
+        if (files.size() >= 2) {
+            File a = files.get(0), b = files.get(1);
+            File v = looksVocal(a) || looksBeat(b) ? a : looksVocal(b) || looksBeat(a) ? b : a;
+            File bt = v == a ? b : a;
+            if (!stemMode) setStemMode(true);
+            loadStem(true, v, () -> loadStem(false, bt, null));
+            return;
+        }
+        File f = files.get(0);
+        if (!stemMode) { loadFile(f); return; }
+        boolean asVocal = looksVocal(f) ? true : looksBeat(f) ? false : vocal == null;
+        loadStem(asVocal, f, null);
+    }
+
+    private void pickStem(boolean isVocal) {
+        if (busy) return;
+        FileDialog d = new FileDialog(frame, isVocal ? "Chọn stem giọng hát" : "Chọn stem nhạc nền", FileDialog.LOAD);
+        String dir = prefs.get("openDir", null);
+        if (dir != null) d.setDirectory(dir);
+        d.setFile("*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.aif;*.aiff");
+        d.setVisible(true);
+        if (d.getFile() == null) return;
+        prefs.put("openDir", d.getDirectory());
+        loadStem(isVocal, new File(d.getDirectory(), d.getFile()), null);
+    }
+
+    private void loadStem(boolean isVocal, File f, Runnable after) {
+        if (busy) return;
+        AudioEngine.Track other = isVocal ? beat : vocal;
+        int target = other != null ? other.sampleRate : 0;
+        player.setSource(null);
+        clearMaster();
+        cancel = false;
+        setBusy(true, "Đang đọc " + (isVocal ? "giọng hát" : "nhạc nền") + ": “" + f.getName() + "”…", 0);
+        new Thread(() -> {
+            try {
+                AudioEngine.Track t = AudioEngine.decode(f, target, x -> {
+                    SwingUtilities.invokeLater(() -> progress.set(x));
+                    return !cancel;
+                });
+                SwingUtilities.invokeLater(() -> {
+                    if (isVocal) { vocal = t; vocalName = f.getName(); vocalFile = f; }
+                    else { beat = t; beatName = f.getName(); beatFile = f; }
+                    rebuildActive();
+                    player.useMaster = true;
+                    setBusy(false, null, 0);
+                    refreshAll();
+                    if (after != null) after.run();
+                });
+            } catch (AudioEngine.Cancelled e) {
+                SwingUtilities.invokeLater(() -> { setBusy(false, "Đã huỷ", 0); rebuildActive(); refreshAll(); });
+            } catch (OutOfMemoryError e) {
+                SwingUtilities.invokeLater(() -> { setBusy(false, null, 0); rebuildActive(); refreshAll(); error(new Exception("Bài quá dài so với bộ nhớ.")); });
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> { setBusy(false, null, 0); rebuildActive(); refreshAll(); error(e); });
+            }
+        }, "decode-stem").start();
+    }
+
     // ───────────────────────────── kéo thả, phím tắt, biểu tượng ─────────────────────────────
 
     private void installDragDrop(JComponent root) {
@@ -681,7 +974,7 @@ public final class Main {
             public boolean importData(TransferSupport s) {
                 try {
                     List<File> files = (List<File>) s.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
-                    if (!files.isEmpty()) loadFile(files.get(0));
+                    if (!files.isEmpty()) dropFiles(files);
                     return true;
                 } catch (Exception e) {
                     return false;

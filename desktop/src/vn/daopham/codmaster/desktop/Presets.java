@@ -1,6 +1,7 @@
 package vn.daopham.codmaster.desktop;
 
 import vn.daopham.codmaster.dsp.Mastering.Settings;
+import vn.daopham.codmaster.dsp.StemMix.StemSettings;
 
 import java.util.List;
 import java.util.Locale;
@@ -62,5 +63,61 @@ final class Presets {
                     s -> s.width, (s, v) -> s.width = v, Presets::pct),
             new Param("Trần đỉnh thật", "−1 dBTP an toàn khi nén lại MP3/AAC", -2, -0.3, 0.1,
                     s -> s.ceilingDb, (s, v) -> s.ceilingDb = v, v -> String.format(Locale.US, "%.1f dBTP", v).replace('-', '−'))
+    );
+
+    // ───── chế độ 2 stem ─────
+
+    /** Thông số stem mặc định cho từng phong cách (cùng thứ tự với ALL). */
+    record StemDef(double vocalDb, double hpf, double comp, double deEss, double pres, double air, double mud,
+                   double reverb, double beatDb, double pocket, double beatBass, double beatWidth) {
+        void applyTo(StemSettings s) {
+            s.vocalDb = vocalDb; s.vocalHpf = hpf; s.vocalComp = comp; s.deEss = deEss; s.vocalPresence = pres;
+            s.vocalAir = air; s.vocalMud = mud; s.reverb = reverb; s.beatDb = beatDb; s.pocket = pocket;
+            s.beatBass = beatBass; s.beatWidth = beatWidth;
+        }
+    }
+
+    static final List<StemDef> STEM = List.of(
+            new StemDef(0, 90, 0.45, 0.40, 1.5, 1.5, -1.5, 0.10, 0, 2.0, 0, 1.10),     // Streaming
+            new StemDef(0.5, 100, 0.55, 0.45, 2, 2, -2, 0.15, 0, 2.5, 1, 1.15),        // Rock Ballad
+            new StemDef(1, 90, 0.50, 0.50, 2, 1, -2, 0.30, 0, 2.5, 0.5, 1.0),          // Bolero
+            new StemDef(1, 85, 0.45, 0.45, 1.5, 1, -1.5, 0.25, 0, 2.0, 0.5, 1.05),     // Trữ tình
+            new StemDef(0.5, 100, 0.50, 0.50, 2, 2.5, -2, 0.20, 0, 2.5, 0.5, 1.15),    // Ballad Việt
+            new StemDef(1.5, 110, 0.55, 0.55, 3, 2, -2.5, 0.10, -0.5, 3.5, 0, 1.10),   // Giọng hát rõ
+            new StemDef(0.5, 80, 0.40, 0.35, 1, 0.5, -1, 0.20, 0, 1.5, 0.5, 1.0),      // Ấm / Acoustic
+            new StemDef(-0.5, 120, 0.65, 0.50, 2, 2.5, -2, 0.10, 0.5, 2.0, 1.5, 1.2),  // Remix
+            new StemDef(0, 110, 0.65, 0.50, 2, 2.5, -2, 0.12, 0.5, 2.5, 1, 1.2),       // To & đậm
+            new StemDef(0.5, 80, 0.30, 0.35, 1, 1, -1, 0.18, 0, 1.5, 0, 1.0)           // Nhẹ nhàng
+    );
+
+    /** tab: 1 = giọng, 2 = nhạc nền */
+    record SParam(int tab, String title, String hint, double min, double max, double step,
+                  ToDoubleFunction<StemSettings> get, BiConsumer<StemSettings, Double> set, DoubleFunction<String> fmt) {}
+
+    static final List<SParam> STEM_PARAMS = List.of(
+            new SParam(1, "Giọng to / nhỏ", "So với cân bằng gốc giữa giọng và nhạc", -6, 6, 0.5,
+                    s -> s.vocalDb, (s, v) -> s.vocalDb = v, v -> signed(v, "dB")),
+            new SParam(1, "Cắt trầm giọng", "Lọc bỏ tiếng ù, tiếng thở trầm dưới tần số này", 60, 200, 5,
+                    s -> s.vocalHpf, (s, v) -> s.vocalHpf = v, v -> Math.round(v) + " Hz"),
+            new SParam(1, "Gọn đục giọng", "Cắt quanh 280 Hz — giọng bớt ồm, bớt mũi", -6, 0, 0.5,
+                    s -> s.vocalMud, (s, v) -> s.vocalMud = v, v -> signed(v, "dB")),
+            new SParam(1, "Nén giọng", "Giữ giọng đều: câu nhỏ rõ hơn, câu lớn không gắt", 0, 1, 0.05,
+                    s -> s.vocalComp, (s, v) -> s.vocalComp = v, Presets::pct),
+            new SParam(1, "Khử xì (s, x)", "Tự hạ tiếng xì chói ở 5–10 kHz, chỉ khi có xì", 0, 1, 0.05,
+                    s -> s.deEss, (s, v) -> s.deEss = v, Presets::pct),
+            new SParam(1, "Rõ lời", "Chuông 3.2 kHz trên giọng — lời hát nổi", -3, 6, 0.5,
+                    s -> s.vocalPresence, (s, v) -> s.vocalPresence = v, v -> signed(v, "dB")),
+            new SParam(1, "Sáng giọng", "Kệ cao 11 kHz trên giọng — trong, có hơi", -3, 6, 0.5,
+                    s -> s.vocalAir, (s, v) -> s.vocalAir = v, v -> signed(v, "dB")),
+            new SParam(1, "Độ vang", "Vang kiểu plate cho giọng — bolero, trữ tình nên có", 0, 1, 0.05,
+                    s -> s.reverb, (s, v) -> s.reverb = v, Presets::pct),
+            new SParam(2, "Nhạc nền to / nhỏ", "So với cân bằng gốc", -6, 6, 0.5,
+                    s -> s.beatDb, (s, v) -> s.beatDb = v, v -> signed(v, "dB")),
+            new SParam(2, "Nhường chỗ giọng", "Khi giọng cất lên, nhạc tự hạ vùng 1–4.5 kHz tối đa bấy nhiêu dB", 0, 6, 0.5,
+                    s -> s.pocket, (s, v) -> s.pocket = v, v -> String.format(Locale.US, "%.1f dB", v)),
+            new SParam(2, "Trầm nhạc nền", "Kệ thấp 95 Hz chỉ trên nhạc nền", -4, 6, 0.5,
+                    s -> s.beatBass, (s, v) -> s.beatBass = v, v -> signed(v, "dB")),
+            new SParam(2, "Độ rộng nhạc nền", "Mở rộng stereo nhạc nền, giọng vẫn ở giữa", 0.5, 1.6, 0.05,
+                    s -> s.beatWidth, (s, v) -> s.beatWidth = v, Presets::pct)
     );
 }

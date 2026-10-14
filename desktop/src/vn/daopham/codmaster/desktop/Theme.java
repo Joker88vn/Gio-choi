@@ -21,6 +21,7 @@ final class Theme {
     static final Color FAINT = new Color(0x5C6573);
     static final Color LINE = new Color(0x272D37);
     static final Color ACC = new Color(0xF5A623);
+    static final Color TEAL = new Color(0x3CC8B4);
     static final Color ACC_HOVER = new Color(0xFFB845);
     static final Color ACC_SOFT = new Color(0x3A2C14);
     static final Color ACC_INK = new Color(0x1A1206);

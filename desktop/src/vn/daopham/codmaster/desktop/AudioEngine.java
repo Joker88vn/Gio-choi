@@ -52,9 +52,14 @@ final class AudioEngine {
     private static final Pattern DURATION = Pattern.compile("Duration: (\\d+):(\\d+):(\\d+(?:\\.\\d+)?)");
     private static final Pattern AUDIO = Pattern.compile("Audio: [^\\n]*?(\\d+) Hz, ([^,\\n]+)");
 
-    static Track decode(File file, Progress progress) throws IOException {
-        List<String> cmd = List.of(ffmpeg(), "-hide_banner", "-nostdin", "-i", file.getAbsolutePath(),
-                "-vn", "-ac", "2", "-acodec", "pcm_f32le", "-f", "f32le", "pipe:1");
+    static Track decode(File file, Progress progress) throws IOException { return decode(file, 0, progress); }
+
+    /** @param targetSr nếu > 0: chuyển về tần số mẫu này (dùng khi ghép 2 stem khác tần số). */
+    static Track decode(File file, int targetSr, Progress progress) throws IOException {
+        List<String> cmd = new ArrayList<>(List.of(ffmpeg(), "-hide_banner", "-nostdin", "-i", file.getAbsolutePath(),
+                "-vn", "-ac", "2"));
+        if (targetSr > 0) { cmd.add("-ar"); cmd.add(String.valueOf(targetSr)); }
+        cmd.addAll(List.of("-acodec", "pcm_f32le", "-f", "f32le", "pipe:1"));
         Process p;
         try {
             p = new ProcessBuilder(cmd).start();
@@ -145,7 +150,7 @@ final class AudioEngine {
             if (!Float.isFinite(L[i])) L[i] = 0;
             if (!Float.isFinite(R[i])) R[i] = 0;
         }
-        return new Track(info[0], L, R, n, info[1]);
+        return new Track(targetSr > 0 ? targetSr : info[0], L, R, n, info[1]);
     }
 
     /** Ghi WAV PCM; 16-bit có dither TPDF. */
