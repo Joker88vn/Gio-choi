@@ -24,7 +24,7 @@ jobs:
         id: cache
         with:
           path: out/ffmpeg.exe
-          key: ffmpeg-audio-7.1-lame3.100-v1
+          key: ffmpeg-audio-7.1-lame3.100-v2
       - name: Công cụ biên dịch chéo
         if: steps.cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y mingw-w64 nasm make pkg-config
@@ -49,11 +49,11 @@ jobs:
             --enable-avfilter --enable-swresample --enable-w32threads \
             --disable-debug --enable-stripping \
             --enable-protocol=file,pipe \
-            --enable-demuxer=mp3,wav,w64,flac,aac,mov,ogg,aiff,asf,matroska,caf,f32le,ape,tta,wv \
+            --enable-demuxer=mp3,wav,w64,flac,aac,mov,ogg,aiff,asf,matroska,caf,pcm_f32le,ape,tta,wv \
             --enable-decoder=mp3,mp3float,aac,aac_fixed,aac_latm,flac,vorbis,opus,alac,wmav1,wmav2,wmapro,ape,tta,wavpack \
             --enable-decoder=pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_s16be,pcm_s24be,pcm_s32be,pcm_f32be,pcm_u8,pcm_alaw,pcm_mulaw \
             --enable-parser=mpegaudio,aac,aac_latm,flac,vorbis,opus \
-            --enable-muxer=f32le,mp3 --enable-encoder=pcm_f32le,libmp3lame --enable-libmp3lame \
+            --enable-muxer=pcm_f32le,mp3 --enable-encoder=pcm_f32le,libmp3lame --enable-libmp3lame \
             --enable-filter=abuffer,abuffersink,aformat,anull,aresample,atrim,asetpts \
             --extra-cflags=-I/opt/lame/include --extra-ldflags="-L/opt/lame/lib -static" \
             --extra-libs="-lmp3lame"
