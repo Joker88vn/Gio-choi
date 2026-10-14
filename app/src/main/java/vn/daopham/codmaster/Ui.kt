@@ -124,6 +124,12 @@ fun Context.vbox(): LinearLayout = LinearLayout(this).apply { orientation = Line
 fun Context.hbox(): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.HORIZONTAL
     gravity = Gravity.CENTER_VERTICAL
+    isBaselineAligned = false
+}
+
+/** Khoảng trống ngang cố định (dp) trong hàng ngang. */
+fun LinearLayout.gapW(d: Int) {
+    addView(View(context), LinearLayout.LayoutParams(context.dp(d), 1))
 }
 
 fun Context.space(wDp: Int, hDp: Int): View = View(this).apply {

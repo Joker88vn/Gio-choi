@@ -9,15 +9,16 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.GridLayout
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import vn.daopham.codmaster.dsp.Mastering
@@ -51,29 +52,37 @@ class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
     @Volatile private var cancel = false
 
+    // track
     private lateinit var fileName: TextView
     private lateinit var fileInfo: TextView
-    private lateinit var presetGrid: GridLayout
+    private lateinit var pickBtn: TextView
+    // monitor
+    private lateinit var wave: WaveView
+    private lateinit var timeText: TextView
+    private lateinit var nowText: TextView
+    private lateinit var abOrig: TextView
+    private lateinit var abMaster: TextView
+    private lateinit var matchChip: TextView
+    private val playButtons = ArrayList<ImageView>()
+    private val tileVal = ArrayList<TextView>()
+    private val tileSub = ArrayList<TextView>()
+    // style / tune
     private val presetViews = ArrayList<TextView>()
     private val paramBars = ArrayList<SeekBar>()
     private val paramVals = ArrayList<TextView>()
-    private lateinit var masterBtn: TextView
+    private var suppressParam = false
+    // export
+    private lateinit var bits24: TextView
+    private lateinit var bits16: TextView
+    // bottom bar
     private lateinit var dirtyNote: TextView
+    private lateinit var actionRow: LinearLayout
+    private lateinit var masterBtn: TextView
+    private lateinit var saveBtn: ImageView
     private lateinit var busyBox: LinearLayout
     private lateinit var busyBar: ProgressBar
     private lateinit var busyText: TextView
-    private lateinit var wave: WaveView
-    private lateinit var timeText: TextView
-    private lateinit var playBtn: TextView
-    private lateinit var abOrig: TextView
-    private lateinit var abMaster: TextView
-    private lateinit var matchSwitch: Switch
-    private lateinit var stats: GridLayout
-    private lateinit var bits24: TextView
-    private lateinit var bits16: TextView
-    private lateinit var saveBtn: TextView
-    private val cardsNeedingFile = ArrayList<View>()
-    private var suppressParam = false
+    private val needFile = ArrayList<View>()
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -85,7 +94,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Pal.BG
-        window.navigationBarColor = Pal.BG
+        window.navigationBarColor = Pal.CARD
         buildUi()
         App.onEnded = { ui.post { refreshPlayer() } }
         refreshAll()
@@ -119,79 +128,224 @@ class MainActivity : Activity() {
         if (uri != null) loadFile(uri)
     }
 
-    // ───────────────────────────── giao diện ─────────────────────────────
+    // ───────────────────────────── thành phần giao diện ─────────────────────────────
+
+    private fun caps(s: String, color: Int = Pal.SUB): TextView = label(s.uppercase(), 11f, color, SANS_MEDIUM).apply {
+        letterSpacing = 0.12f
+    }
+
+    private fun compactCard(): LinearLayout = vbox().apply {
+        background = rounded(Pal.CARD, 18, Pal.LINE)
+        setPadding(dp(14), dp(14), dp(14), dp(14))
+    }
+
+    private fun iconButton(kind: Icon.Kind, sizeDp: Int, fill: Int, fg: Int, stroke: Int?, onClick: () -> Unit) =
+        ImageView(this).apply {
+            setImageDrawable(Icon(kind, fg))
+            val pad = (sizeDp * 0.28f).toInt()
+            setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+            background = ripple(oval(fill, stroke), oval(Color.WHITE), 0x40FFFFFF)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+
+    /** Nút gạt hai lựa chọn kiểu phòng thu. */
+    private fun segmented(a: String, b: String, onA: () -> Unit, onB: () -> Unit): Triple<LinearLayout, TextView, TextView> {
+        val box = hbox().apply {
+            background = rounded(Pal.CARD2, 999, Pal.LINE)
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        fun seg(t: String, f: () -> Unit) = TextView(this).apply {
+            text = t
+            textSize = 12.5f
+            typeface = SANS_MEDIUM
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            isClickable = true
+            setOnClickListener { f() }
+        }
+        val ta = seg(a, onA)
+        val tb = seg(b, onB)
+        box.add(ta, WRAP, WRAP)
+        box.add(tb, WRAP, WRAP)
+        return Triple(box, ta, tb)
+    }
+
+    private fun styleSeg(t: TextView, on: Boolean) {
+        t.setTextColor(if (on) Pal.ACC_INK else Pal.SUB)
+        t.background = if (on) rounded(Pal.ACC, 999) else null
+    }
+
+    private fun tile(title: String): LinearLayout {
+        val v = vbox().apply {
+            background = rounded(Pal.CARD2, 14)
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+        }
+        v.add(caps(title).apply { textSize = 10f })
+        val value = label("—", 17f, Pal.INK, SANS_BOLD).apply { maxLines = 1 }
+        val sub = label("", 11f, Pal.SUB).apply { maxLines = 1 }
+        v.add(value, topDp = 3)
+        v.add(sub, topDp = 1)
+        tileVal.add(value)
+        tileSub.add(sub)
+        return v
+    }
+
+    // ───────────────────────────── dựng giao diện ─────────────────────────────
 
     private fun buildUi() {
-        val root = vbox().apply { setPadding(dp(16), dp(20), dp(16), dp(36)) }
+        val content = vbox().apply { setPadding(dp(14), dp(12), dp(14), dp(18)) }
 
-        // Đầu trang
-        val head = hbox()
-        val logo = TextView(this).apply {
-            text = "◉"
-            textSize = 22f
-            setTextColor(Pal.ACC_INK)
-            gravity = Gravity.CENTER
-            background = oval(Pal.ACC)
+        // Thanh tiêu đề
+        val top = hbox()
+        val logo = ImageView(this).apply {
+            setImageDrawable(Icon(Icon.Kind.MUSIC, Pal.ACC_INK))
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = rounded(Pal.ACC, 11)
         }
-        head.add(logo, dp(44), dp(44))
-        val titles = vbox().apply { setPadding(dp(14), 0, 0, 0) }
-        titles.add(label("COD Master", 22f, Pal.INK, SANS_BOLD))
-        titles.add(label("Master âm thanh chất lượng cao ngay trên máy", 13f, Pal.SUB))
-        head.add(titles, 0, WRAP, 1f)
-        root.add(head)
+        top.add(logo, dp(38), dp(38))
+        top.gapW(10)
+        val tt = vbox()
+        tt.add(label("COD Master", 18f, Pal.INK, SANS_BOLD))
+        tt.add(caps("Mastering studio", Pal.ACC).apply { textSize = 10f })
+        top.add(tt, 0, WRAP, 1f)
+        top.add(chip("EBU R128 · True Peak", Pal.SUB, Pal.CARD2).apply { textSize = 10.5f }, WRAP, WRAP)
+        content.add(top)
 
-        // 1. Bài nhạc
-        val c1 = card()
-        c1.add(sectionTitle("1", "Bài nhạc"))
-        fileName = label("Chưa chọn bài", 16f, Pal.INK, SANS_MEDIUM)
-        fileInfo = label("MP3, M4A, WAV, FLAC, OGG… · có thể chia sẻ file từ app khác vào đây", 13f, Pal.SUB)
-        c1.add(fileName, topDp = 12)
-        c1.add(fileInfo, topDp = 4)
-        c1.add(pill("Chọn file nhạc") { pickFile() }, topDp = 14)
-        root.add(c1, topDp = 18)
+        // Bài nhạc
+        val track = compactCard()
+        val trow = hbox()
+        val note = ImageView(this).apply {
+            setImageDrawable(Icon(Icon.Kind.MUSIC, Pal.ACC))
+            setPadding(dp(11), dp(11), dp(11), dp(11))
+            background = rounded(Pal.ACC_SOFT, 12)
+        }
+        trow.add(note, dp(46), dp(46))
+        trow.gapW(12)
+        val tinfo = vbox()
+        fileName = label("Chưa chọn bài", 15f, Pal.INK, SANS_MEDIUM).apply {
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
+        }
+        fileInfo = label("MP3 · M4A · WAV · FLAC · OGG", 12f, Pal.SUB).apply { maxLines = 1 }
+        tinfo.add(fileName)
+        tinfo.add(fileInfo, topDp = 2)
+        trow.add(tinfo, 0, WRAP, 1f)
+        trow.gapW(8)
+        pickBtn = pill("Chọn bài", Btn.SOFT) { pickFile() }.apply {
+            textSize = 13f; minHeight = dp(38); setPadding(dp(16), dp(6), dp(16), dp(6))
+        }
+        trow.add(pickBtn, WRAP, WRAP)
+        track.add(trow)
+        content.add(track, topDp = 14)
 
-        // 2. Phong cách
-        val c2 = card()
-        c2.add(sectionTitle("2", "Phong cách"))
-        presetGrid = GridLayout(this).apply { columnCount = 2 }
+        // Monitor: sóng âm + phát + A/B + số đo
+        val mon = compactCard()
+        val mhead = hbox()
+        mhead.add(caps("Nghe thử"), 0, WRAP, 1f)
+        val seg = segmented("GỐC", "MASTER", { setAB(false) }, { setAB(true) })
+        abOrig = seg.second
+        abMaster = seg.third
+        mhead.add(seg.first, WRAP, WRAP)
+        mon.add(mhead)
+
+        wave = WaveView(this).apply {
+            onSeek = { f ->
+                val p = App.player
+                p.seek((f * p.frames).toInt())
+                updatePlayhead()
+            }
+        }
+        mon.add(wave, MATCH, dp(92), topDp = 12)
+
+        val tline = hbox()
+        timeText = label("0:00 / 0:00", 11.5f, Pal.SUB)
+        tline.add(timeText, 0, WRAP, 1f)
+        tline.add(label("▮ Gốc", 11f, Pal.WAVE_ORIG), WRAP, WRAP)
+        tline.gapW(10)
+        tline.add(label("▮ Master", 11f, Pal.ACC), WRAP, WRAP)
+        mon.add(tline, topDp = 4)
+
+        val transport = hbox()
+        val play1 = iconButton(Icon.Kind.PLAY, 54, Pal.ACC, Pal.ACC_INK, null) { togglePlay() }
+        playButtons.add(play1)
+        transport.add(play1, dp(54), dp(54))
+        transport.gapW(12)
+        val nowBox = vbox()
+        nowText = label("Chưa có bài", 14f, Pal.INK, SANS_MEDIUM).apply { maxLines = 1 }
+        nowBox.add(nowText)
+        nowBox.add(label("Chạm vào sóng âm để tua", 11.5f, Pal.SUB), topDp = 1)
+        transport.add(nowBox, 0, WRAP, 1f)
+        matchChip = TextView(this).apply {
+            text = "Cân âm lượng"
+            textSize = 12f
+            typeface = SANS_MEDIUM
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            isClickable = true
+            setOnClickListener {
+                App.matchLevel = !App.matchLevel
+                applyMatch()
+                refreshPlayer()
+                if (App.matchLevel) toast("Bản master được hạ bằng độ lớn bản gốc — so sánh màu tiếng công bằng")
+            }
+        }
+        transport.add(matchChip, WRAP, WRAP)
+        mon.add(transport, topDp = 12)
+
+        val tiles = hbox()
+        tiles.add(tile("Độ lớn"), 0, WRAP, 1f)
+        tiles.gapW(8)
+        tiles.add(tile("Đỉnh thật"), 0, WRAP, 1f)
+        tiles.gapW(8)
+        tiles.add(tile("Limiter"), 0, WRAP, 1f)
+        mon.add(tiles, topDp = 12)
+        content.add(mon, topDp = 10)
+        needFile.add(mon)
+
+        // Phong cách: hàng chip vuốt ngang
+        content.add(caps("Phong cách"), topDp = 18)
+        val hs = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+        }
+        val chips = hbox()
         Presets.all.forEachIndexed { i, p ->
             val t = TextView(this).apply {
                 text = "${p.name}\n${p.desc}"
-                textSize = 13.5f
-                setPadding(dp(12), dp(10), dp(12), dp(10))
+                textSize = 12.5f
                 setLineSpacing(0f, 1.1f)
+                setPadding(dp(14), dp(9), dp(14), dp(9))
                 isClickable = true
                 setOnClickListener { choosePreset(i) }
             }
             presetViews.add(t)
-            val lp = GridLayout.LayoutParams(
-                GridLayout.spec(i / 2), GridLayout.spec(i % 2, 1f)
-            ).apply {
-                width = 0
-                setMargins(dp(3), dp(3), dp(3), dp(3))
-            }
-            presetGrid.addView(t, lp)
+            chips.add(t, WRAP, WRAP)
+            if (i < Presets.all.size - 1) chips.gapW(8)
         }
-        c2.add(presetGrid, topDp = 10)
-        root.add(c2, topDp = 14)
+        hs.addView(chips)
+        content.add(hs, topDp = 8)
 
-        // 3. Tinh chỉnh
-        val c3 = card()
-        c3.add(sectionTitle("3", "Tinh chỉnh"))
+        // Tinh chỉnh: mỗi thông số một dòng
+        val tune = compactCard()
+        val thead = hbox()
+        thead.add(caps("Tinh chỉnh"), 0, WRAP, 1f)
+        thead.add(label("Chạm tên để xem giải thích", 11f, Pal.SUB), WRAP, WRAP)
+        tune.add(thead)
         Params.all.forEachIndexed { idx, prm ->
             val row = hbox()
-            row.add(label(prm.title, 15f, Pal.INK, SANS_MEDIUM), 0, WRAP, 1f)
-            val v = label("", 14f, Pal.ACC, SANS_MEDIUM)
-            paramVals.add(v)
-            row.add(v, WRAP, WRAP)
-            c3.add(row, topDp = if (idx == 0) 10 else 16)
-            c3.add(label(prm.hint, 12f, Pal.SUB), topDp = 1)
+            val name = label(prm.title, 12.5f, Pal.INK).apply {
+                maxLines = 2
+                isClickable = true
+                setOnClickListener { toast("${prm.title}: ${prm.hint}") }
+            }
+            row.add(name, dp(96), WRAP)
             val sb = SeekBar(this).apply {
                 max = prm.steps
                 progressTintList = ColorStateList.valueOf(Pal.ACC)
                 thumbTintList = ColorStateList.valueOf(Pal.ACC)
                 progressBackgroundTintList = ColorStateList.valueOf(Pal.LINE)
-                setPadding(dp(4), dp(8), dp(4), dp(8))
+                setPadding(dp(12), dp(10), dp(12), dp(10))
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
                         val value = prm.fromIndex(p)
@@ -208,129 +362,81 @@ class MainActivity : Activity() {
                 })
             }
             paramBars.add(sb)
-            c3.add(sb)
+            row.add(sb, 0, WRAP, 1f)
+            val v = label("", 12f, Pal.ACC, SANS_MEDIUM).apply { gravity = Gravity.END; maxLines = 1 }
+            paramVals.add(v)
+            row.add(v, dp(74), WRAP)
+            tune.add(row, topDp = if (idx == 0) 8 else 2)
         }
-        root.add(c3, topDp = 14)
+        content.add(tune, topDp = 14)
 
-        // Nút master + tiến trình
-        dirtyNote = label("", 13f, Pal.ACC).centered()
-        root.add(dirtyNote, topDp = 16)
-        masterBtn = pill("MASTER NGAY") { startMaster() }.apply {
-            textSize = 17f
-            typeface = SANS_BOLD
-            minHeight = dp(56)
+        // Xuất file
+        val exp = compactCard()
+        val ehead = hbox()
+        val etx = vbox()
+        etx.add(caps("Xuất file WAV"))
+        etx.add(label("24-bit: lưu trữ, dựng video · 16-bit: có dither", 11.5f, Pal.SUB), topDp = 3)
+        ehead.add(etx, 0, WRAP, 1f)
+        val bseg = segmented("24-bit", "16-bit",
+            { App.exportBits = 24; refreshExport() }, { App.exportBits = 16; refreshExport() })
+        bits24 = bseg.second
+        bits16 = bseg.third
+        ehead.add(bseg.first, WRAP, WRAP)
+        exp.add(ehead)
+        content.add(exp, topDp = 10)
+        needFile.add(exp)
+
+        content.add(label("Lọc siêu trầm → EQ → nén glue → bão hoà → stereo M/S → limiter true-peak", 10.5f, Pal.SUB).centered(), topDp = 14)
+
+        val sv = ScrollView(this).apply {
+            setBackgroundColor(Pal.BG)
+            addView(content)
         }
-        root.add(masterBtn, topDp = 8)
+
+        // Thanh điều khiển cố định ở đáy
+        val bar = vbox().apply {
+            background = rounded(Pal.CARD, 0, null)
+            setPadding(dp(14), dp(8), dp(14), dp(12))
+        }
+        val topLine = View(this).apply { setBackgroundColor(Pal.LINE) }
+        dirtyNote = label("", 11.5f, Pal.SUB).centered()
+        bar.add(dirtyNote)
+        actionRow = hbox()
+        val play2 = iconButton(Icon.Kind.PLAY, 52, Pal.CARD2, Pal.ACC, Pal.ACC) { togglePlay() }
+        playButtons.add(play2)
+        actionRow.add(play2, dp(52), dp(52))
+        actionRow.gapW(10)
+        masterBtn = pill("MASTER") { startMaster() }.apply {
+            textSize = 16f
+            typeface = SANS_BOLD
+            letterSpacing = 0.08f
+            minHeight = dp(52)
+        }
+        actionRow.add(masterBtn, 0, dp(52), 1f)
+        actionRow.gapW(10)
+        saveBtn = iconButton(Icon.Kind.SAVE, 52, Pal.CARD2, Pal.INK, Pal.LINE) { saveFile() }
+        actionRow.add(saveBtn, dp(52), dp(52))
+        bar.add(actionRow, topDp = 6)
+
         busyBox = vbox().apply { visibility = View.GONE }
-        busyText = label("", 14f, Pal.INK)
+        val brow = hbox()
+        busyText = label("", 13.5f, Pal.INK, SANS_MEDIUM).apply { maxLines = 1 }
+        brow.add(busyText, 0, WRAP, 1f)
+        brow.add(iconButton(Icon.Kind.CLOSE, 34, Pal.CARD2, Pal.SUB, Pal.LINE) { cancel = true }, dp(34), dp(34))
+        busyBox.add(brow)
         busyBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             progressTintList = ColorStateList.valueOf(Pal.ACC)
             progressBackgroundTintList = ColorStateList.valueOf(Pal.LINE)
         }
-        busyBox.add(busyText)
         busyBox.add(busyBar, topDp = 8)
-        busyBox.add(pill("Huỷ", Btn.OUTLINE) { cancel = true }, topDp = 10)
-        root.add(busyBox, topDp = 10)
+        bar.add(busyBox, topDp = 6)
 
-        // 4. Nghe & so sánh
-        val c4 = card()
-        c4.add(sectionTitle("4", "Nghe & so sánh"))
-        wave = WaveView(this).apply {
-            onSeek = { f ->
-                val p = App.player
-                p.seek((f * p.frames).toInt())
-                updatePlayhead()
-            }
-        }
-        c4.add(wave, MATCH, dp(110), topDp = 12)
-        val trow = hbox()
-        timeText = label("0:00 / 0:00", 13f, Pal.SUB)
-        trow.add(timeText, 0, WRAP, 1f)
-        val legend = label("▮ Gốc   ", 12f, Pal.WAVE_ORIG)
-        val legend2 = label("▮ Master", 12f, Pal.ACC)
-        trow.add(legend, WRAP, WRAP)
-        trow.add(legend2, WRAP, WRAP)
-        c4.add(trow, topDp = 6)
-
-        val prow = hbox()
-        playBtn = pill("▶  Phát") { togglePlay() }
-        prow.add(playBtn, 0, WRAP, 1f)
-        prow.add(space(10, 1), WRAP, WRAP)
-        abOrig = pill("Gốc", Btn.OUTLINE) { setAB(false) }
-        abMaster = pill("Master", Btn.OUTLINE) { setAB(true) }
-        prow.add(abOrig, 0, WRAP, 0.8f)
-        prow.add(space(6, 1), WRAP, WRAP)
-        prow.add(abMaster, 0, WRAP, 0.9f)
-        c4.add(prow, topDp = 12)
-
-        val mrow = hbox()
-        val mtexts = vbox()
-        mtexts.add(label("Cân âm lượng khi so sánh", 14f, Pal.INK, SANS_MEDIUM))
-        mtexts.add(label("Hạ bản master bằng độ lớn bản gốc để nghe công bằng — nghe khác biệt về màu tiếng, không bị lừa vì to hơn", 12f, Pal.SUB))
-        mrow.add(mtexts, 0, WRAP, 1f)
-        matchSwitch = Switch(this).apply {
-            thumbTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(Pal.ACC, Pal.SUB)
-            )
-            trackTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(Pal.ACC_SOFT, Pal.LINE)
-            )
-            setOnCheckedChangeListener { _, b ->
-                App.matchLevel = b
-                applyMatch()
-            }
-        }
-        mrow.add(matchSwitch, WRAP, WRAP)
-        c4.add(mrow, topDp = 14)
-
-        stats = GridLayout(this).apply { columnCount = 3 }
-        c4.add(stats, topDp = 14)
-        root.add(c4, topDp = 14)
-        cardsNeedingFile.add(c4)
-
-        // 5. Xuất file
-        val c5 = card()
-        c5.add(sectionTitle("5", "Xuất file"))
-        val brow = hbox()
-        bits24 = pill("WAV 24-bit", Btn.OUTLINE) { App.exportBits = 24; refreshExport() }
-        bits16 = pill("WAV 16-bit", Btn.OUTLINE) { App.exportBits = 16; refreshExport() }
-        brow.add(bits24, 0, WRAP, 1f)
-        brow.add(space(8, 1), WRAP, WRAP)
-        brow.add(bits16, 0, WRAP, 1f)
-        c5.add(brow, topDp = 12)
-        c5.add(label("24-bit: chất lượng cao nhất, để lưu trữ / dựng video.  16-bit: tương thích mọi nơi, có dither chống mất chi tiết.", 12f, Pal.SUB), topDp = 8)
-        saveBtn = pill("Lưu file master") { saveFile() }
-        c5.add(saveBtn, topDp = 14)
-        root.add(c5, topDp = 14)
-        cardsNeedingFile.add(c5)
-
-        root.add(label("Chuỗi xử lý: lọc siêu trầm → EQ → nén glue → bão hoà → stereo → limiter true-peak, đo theo chuẩn EBU R128 / ITU BS.1770.", 11.5f, Pal.SUB).centered(), topDp = 18)
-
-        val sv = ScrollView(this).apply {
-            setBackgroundColor(Pal.BG)
-            isFillViewport = true
-            addView(root)
-        }
-        setContentView(sv)
-    }
-
-    private fun sectionTitle(num: String, title: String): View {
-        val r = hbox()
-        val n = TextView(this).apply {
-            text = num
-            textSize = 12f
-            typeface = SANS_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Pal.ACC)
-            background = oval(Pal.ACC_SOFT)
-        }
-        r.add(n, dp(24), dp(24))
-        r.add(space(10, 1), WRAP, WRAP)
-        r.add(label(title, 17f, Pal.INK, SANS_BOLD), 0, WRAP, 1f)
-        return r
+        val root = vbox().apply { setBackgroundColor(Pal.BG) }
+        root.add(sv, MATCH, 0, 1f)
+        root.add(topLine, MATCH, 1)
+        root.add(bar)
+        setContentView(root)
     }
 
     // ───────────────────────────── làm mới giao diện ─────────────────────────────
@@ -339,12 +445,10 @@ class MainActivity : Activity() {
         refreshFile()
         refreshPresets()
         refreshParams()
-        refreshDirty()
         refreshPlayer()
         refreshStats()
         refreshExport()
         wave.setData(App.origPeaks, App.masterPeaks)
-        matchSwitch.isChecked = App.matchLevel
         setBusy(App.busy, null, 0f)
     }
 
@@ -352,14 +456,16 @@ class MainActivity : Activity() {
         val d = App.decoded
         if (d == null) {
             fileName.text = "Chưa chọn bài"
+            fileInfo.text = "MP3 · M4A · WAV · FLAC · OGG"
+            pickBtn.text = "Chọn bài"
         } else {
             fileName.text = App.name
             val chs = if (d.srcChannels == 1) "Mono" else "Stereo"
             val khz = String.format(java.util.Locale.US, "%.1f kHz", d.sampleRate / 1000.0)
             fileInfo.text = "$khz · $chs · ${fmtTime(d.frames, d.sampleRate)}"
+            pickBtn.text = "Đổi bài"
         }
-        val has = d != null
-        for (v in cardsNeedingFile) v.alpha = if (has) 1f else 0.45f
+        for (v in needFile) v.alpha = if (d != null) 1f else 0.5f
     }
 
     private fun refreshPresets() {
@@ -368,7 +474,7 @@ class MainActivity : Activity() {
             t.setTextColor(if (sel) Pal.ACC_INK else Pal.INK)
             t.typeface = if (sel) SANS_MEDIUM else SANS
             t.background = ripple(
-                rounded(if (sel) Pal.ACC else Pal.CARD2, 14, if (sel) null else Pal.LINE),
+                rounded(if (sel) Pal.ACC else Pal.CARD, 14, if (sel) null else Pal.LINE),
                 rounded(Color.WHITE, 14), 0x30FFFFFF
             )
         }
@@ -398,12 +504,12 @@ class MainActivity : Activity() {
         val changed = mastered && settingsChanged()
         dirtyNote.text = when {
             !has -> "Chọn bài nhạc để bắt đầu"
-            changed -> "Cài đặt đã đổi — bấm để master lại"
-            mastered -> "Đã master xong ✓"
-            else -> ""
+            changed -> "Cài đặt đã đổi — bấm MASTER LẠI để áp dụng"
+            mastered -> "✓ Đã master · bấm ▶ để nghe, ⤓ để lưu"
+            else -> "Chọn phong cách rồi bấm MASTER"
         }
-        dirtyNote.visibility = if (dirtyNote.text.isEmpty()) View.GONE else View.VISIBLE
-        masterBtn.text = if (mastered) "MASTER LẠI" else "MASTER NGAY"
+        dirtyNote.setTextColor(if (changed) Pal.ACC else Pal.SUB)
+        masterBtn.text = if (mastered) "MASTER LẠI" else "MASTER"
         masterBtn.alpha = if (has && !App.busy) 1f else 0.4f
         masterBtn.isEnabled = has && !App.busy
     }
@@ -411,60 +517,53 @@ class MainActivity : Activity() {
     private fun refreshPlayer() {
         val p = App.player
         val has = App.decoded != null
-        playBtn.text = if (p.isPlaying) "❚❚  Dừng" else "▶  Phát"
-        playBtn.isEnabled = has
+        val playing = p.isPlaying
+        for (b in playButtons) {
+            val main = b === playButtons[0]
+            b.setImageDrawable(Icon(if (playing) Icon.Kind.PAUSE else Icon.Kind.PLAY, if (main) Pal.ACC_INK else Pal.ACC))
+            b.isEnabled = has
+            b.alpha = if (has) 1f else 0.4f
+        }
         val m = p.useMaster && App.masterL != null
-        styleToggle(abOrig, !m)
-        styleToggle(abMaster, m)
-        abMaster.isEnabled = App.masterL != null
+        styleSeg(abOrig, !m)
+        styleSeg(abMaster, m)
         abMaster.alpha = if (App.masterL != null) 1f else 0.4f
+        nowText.text = when {
+            !has -> "Chưa có bài"
+            m -> if (App.matchLevel) "Đang nghe: Master (đã cân)" else "Đang nghe: Master"
+            else -> "Đang nghe: Bản gốc"
+        }
+        val on = App.matchLevel
+        matchChip.setTextColor(if (on) Pal.ACC else Pal.SUB)
+        matchChip.background = rounded(if (on) Pal.ACC_SOFT else Pal.CARD2, 999, if (on) Pal.ACC else Pal.LINE)
         updatePlayhead()
     }
 
-    private fun styleToggle(t: TextView, on: Boolean) {
-        t.setTextColor(if (on) Pal.ACC else Pal.INK)
-        t.background = ripple(
-            rounded(if (on) Pal.ACC_SOFT else Pal.CARD2, 999, if (on) Pal.ACC else Pal.LINE),
-            rounded(Color.WHITE, 999), 0x30FFFFFF
-        )
-    }
-
     private fun refreshExport() {
-        styleToggle(bits24, App.exportBits == 24)
-        styleToggle(bits16, App.exportBits == 16)
+        styleSeg(bits24, App.exportBits == 24)
+        styleSeg(bits16, App.exportBits == 16)
         val ok = App.masterL != null && !App.busy
         saveBtn.isEnabled = ok
         saveBtn.alpha = if (ok) 1f else 0.4f
+        saveBtn.setImageDrawable(Icon(Icon.Kind.SAVE, if (ok) Pal.ACC else Pal.INK))
     }
 
     private fun refreshStats() {
-        stats.removeAllViews()
-        val r = App.result ?: run {
-            stats.visibility = View.GONE
+        val r = App.result
+        if (r == null) {
+            for (i in 0..2) { tileVal[i].text = "—"; tileSub[i].text = "" }
+            tileSub[0].text = "LUFS"
+            tileSub[1].text = "dBTP"
+            tileSub[2].text = "giảm tối đa"
             return
         }
-        stats.visibility = View.VISIBLE
-        fun cell(s: String, color: Int, bold: Boolean, col: Int, row: Int, alignEnd: Boolean) {
-            val t = label(s, 13.5f, color, if (bold) SANS_MEDIUM else SANS)
-            if (alignEnd) t.gravity = Gravity.END
-            val lp = GridLayout.LayoutParams(GridLayout.spec(row), GridLayout.spec(col, if (col == 0) 1.4f else 1f)).apply {
-                width = 0
-                setMargins(0, dp(3), 0, dp(3))
-            }
-            stats.addView(t, lp)
-        }
-        cell("", Pal.SUB, false, 0, 0, false)
-        cell("Gốc", Pal.SUB, true, 1, 0, true)
-        cell("Master", Pal.ACC, true, 2, 0, true)
-        cell("Độ lớn", Pal.INK, false, 0, 1, false)
-        cell(fmtDb(r.inLufs, "LUFS"), Pal.INK, false, 1, 1, true)
-        cell(fmtDb(r.outLufs, "LUFS"), Pal.INK, true, 2, 1, true)
-        cell("Đỉnh thật", Pal.INK, false, 0, 2, false)
-        cell(fmtDb(r.inTpDb, "dBTP"), if (r.inTpDb > 0) Pal.BAD else Pal.INK, false, 1, 2, true)
-        cell(fmtDb(r.outTpDb, "dBTP"), Pal.INK, true, 2, 2, true)
-        cell("Limiter nén tối đa", Pal.INK, false, 0, 3, false)
-        cell("", Pal.INK, false, 1, 3, true)
-        cell(fmtDb(r.limiterGrDb, "dB"), Pal.INK, true, 2, 3, true)
+        fun n(v: Double) = if (v <= -99) "—" else String.format(java.util.Locale.US, "%.1f", v).replace('-', '−')
+        tileVal[0].text = n(r.outLufs)
+        tileSub[0].text = "LUFS · gốc ${n(r.inLufs)}"
+        tileVal[1].text = n(r.outTpDb)
+        tileSub[1].text = "dBTP · gốc ${n(r.inTpDb)}"
+        tileVal[2].text = n(r.limiterGrDb)
+        tileSub[2].text = "dB giảm tối đa"
     }
 
     private fun updatePlayhead() {
@@ -478,13 +577,17 @@ class MainActivity : Activity() {
         wave.progress = pos / n.toFloat()
         timeText.text = "${fmtTime(pos, p.sampleRate)} / ${fmtTime(n, p.sampleRate)}"
         val playing = p.isPlaying
-        val want = if (playing) "❚❚  Dừng" else "▶  Phát"
-        if (playBtn.text != want) playBtn.text = want
+        if (playButtons.isNotEmpty() && (playButtons[0].tag as? Boolean) != playing) {
+            playButtons[0].tag = playing
+            refreshPlayer()
+        }
     }
 
     private fun setBusy(on: Boolean, text: String?, f: Float) {
         App.busy = on
         busyBox.visibility = if (on) View.VISIBLE else View.GONE
+        actionRow.visibility = if (on) View.GONE else View.VISIBLE
+        dirtyNote.visibility = if (on) View.GONE else View.VISIBLE
         if (text != null) busyText.text = text
         busyBar.progress = (f * 1000).toInt()
         if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
