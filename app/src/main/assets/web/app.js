@@ -495,8 +495,26 @@
       var b = e.target.closest('.wg'); if (!b) return;
       var ok = false;
       try { ok = NB && NB.pinWidget ? NB.pinWidget(b.dataset.w) : false; } catch (er) {}
-      if (!ok) toast('Nhấn giữ màn hình chính → Widget → “Âm Lịch” để thêm');
+      clearTimeout(pinTimer);
+      if (!ok) { widgetGuide(); return; }
+      toast('Đang mở hộp thoại thêm widget…');
+      // Nếu launcher không hiện hộp thoại (MIUI, ColorOS…) thì hướng dẫn thêm thủ công
+      pinTimer = setTimeout(function () { if (!document.hidden) widgetGuide(true); }, 2500);
     };
+  }
+  var pinTimer = 0;
+  function widgetGuide(silent) {
+    openSheet('<div class="sh-title">Thêm widget ra màn hình</div>' +
+      (silent ? '<p class="sh-preview" style="margin-bottom:12px">Máy của anh chưa hiện hộp thoại thêm tự động. Thêm thủ công rất nhanh:</p>' : '') +
+      '<ol class="guide">' +
+      '<li><b>Về màn hình chính</b>, nhấn giữ vào chỗ trống khoảng 1 giây.</li>' +
+      '<li>Chọn <b>Widget</b> (hoặc <b>Tiện ích</b>).</li>' +
+      '<li>Gõ tìm <b>“Âm Lịch”</b> hoặc kéo xuống tìm biểu tượng lịch đỏ.</li>' +
+      '<li>Chọn mẫu muốn dùng (Ngày, Chi tiết, Tháng, Đếm ngược Tết, Dòng ngày) rồi <b>kéo thả</b> ra màn hình.</li>' +
+      '</ol>' +
+      '<p class="hint">Máy Xiaomi/Redmi: nếu không thấy hộp thoại, vào Cài đặt → Ứng dụng → Âm Lịch → Quyền khác → bật <b>“Lối tắt trên màn hình chính”</b>.</p>' +
+      '<div class="sh-actions"><button class="btn pri" id="g-ok">Đã hiểu</button></div>');
+    $('g-ok').onclick = closeSheet;
   }
 
   /* ---------------- Điều hướng ---------------- */
@@ -597,6 +615,9 @@
       return false;
     },
     handleHash: handleHash,
+    pinned: function () { clearTimeout(pinTimer); closeSheet(); toast('Đã thêm widget ra màn hình ✓'); },
+    cancelPin: function () { clearTimeout(pinTimer); },
+    pinFailed: function () { clearTimeout(pinTimer); widgetGuide(true); },
     onResume: function () { applyTheme(); refreshAll(); }
   };
 

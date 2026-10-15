@@ -1,6 +1,7 @@
 package vn.daopham.amlich;
 
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -72,8 +73,20 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if ("vn.daopham.amlich.PINNED".equals(intent.getAction())) {
+            Widgets.updateAll(this);
+            if (web != null) web.evaluateJavascript("window.App&&App.pinned()", null);
+            return;
+        }
         String h = hashOf(intent);
         if (!h.isEmpty() && web != null) web.evaluateJavascript("window.App&&App.handleHash('" + h.substring(1) + "')", null);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Hộp thoại thêm widget đã hiện → huỷ hướng dẫn dự phòng
+        if (web != null) web.evaluateJavascript("window.App&&App.cancelPin&&App.cancelPin()", null);
     }
 
     @Override
@@ -164,7 +177,21 @@ public class MainActivity extends Activity {
             }
             AppWidgetManager m = AppWidgetManager.getInstance(MainActivity.this);
             if (m == null || !m.isRequestPinAppWidgetSupported()) return false;
-            return m.requestPinAppWidget(new ComponentName(MainActivity.this, cls), null, null);
+            final Class<?> target = cls;
+            runOnUiThread(() -> {
+                try {
+                    Intent cb = new Intent(MainActivity.this, MainActivity.class)
+                            .setAction("vn.daopham.amlich.PINNED")
+                            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    int fl = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                    PendingIntent pi = PendingIntent.getActivity(MainActivity.this, 77, cb, fl);
+                    boolean ok = m.requestPinAppWidget(new ComponentName(MainActivity.this, target), null, pi);
+                    if (!ok) web.evaluateJavascript("window.App&&App.pinFailed()", null);
+                } catch (Exception e) {
+                    web.evaluateJavascript("window.App&&App.pinFailed()", null);
+                }
+            });
+            return true;
         }
 
         @JavascriptInterface

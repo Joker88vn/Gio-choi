@@ -356,3 +356,7 @@ input,select{font:inherit;color:inherit}
   .gio-wrap{grid-template-columns:128px 1fr}
   .dial{width:128px;height:128px}
 }
+
+.guide{padding-left:22px;display:flex;flex-direction:column;gap:10px;margin-bottom:6px}
+.guide li{font-size:14.5px;line-height:1.5}
+.guide li::marker{color:var(--acc);font-weight:700}
