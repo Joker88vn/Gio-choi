@@ -1,0 +1,49 @@
+name: Build Am Lich APK
+
+on:
+  push:
+    branches: [am-lich]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Build
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+          cp app/build/outputs/apk/release/app-release.apk /tmp/AmLich.apk
+      - name: Publish APK to am-lich-apk branch
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git checkout --orphan am-lich-apk
+          git rm -rf --quiet .
+          cp /tmp/AmLich.apk .
+          echo "${{ github.sha }}" > SOURCE_SHA
+          git add AmLich.apk SOURCE_SHA
+          git commit -m "APK build ${{ github.run_number }}"
+          git push -f origin am-lich-apk
+      - name: Publish log on failure
+        if: failure()
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git checkout --orphan am-lich-log
+          git rm -rf --quiet . || true
+          tail -c 200000 /tmp/build.log > build.log || echo "no log" > build.log
+          echo "${{ github.sha }}" > SOURCE_SHA
+          git add build.log SOURCE_SHA
+          git commit -m "Build log ${{ github.run_number }}"
+          git push -f origin am-lich-log

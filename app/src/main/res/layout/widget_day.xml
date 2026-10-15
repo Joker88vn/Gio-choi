@@ -1,0 +1,13 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="vertical" android:gravity="center" android:background="@drawable/w_bg_red" android:padding="10dp">
+ <TextView android:id="@+id/w_wd" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="THỨ NĂM"
+  android:textColor="#E6FFF7EA" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.14"/>
+ <TextView android:id="@+id/w_day" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center"
+  android:text="15" android:textColor="#FFF7EA" android:fontFamily="serif" android:textStyle="bold" android:includeFontPadding="false"
+  android:autoSizeTextType="uniform" android:autoSizeMinTextSize="28sp" android:autoSizeMaxTextSize="72sp" android:maxLines="1"/>
+ <TextView android:id="@+id/w_month" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tháng 10 · 2026"
+  android:textColor="#DDFFF7EA" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+ <ImageView android:layout_width="44dp" android:layout_height="1dp" android:layout_marginTop="5dp" android:layout_marginBottom="5dp" android:src="@drawable/w_divider" android:scaleType="fitXY"/>
+ <TextView android:id="@+id/w_lunar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="6/9 · Bính Ngọ"
+  android:textColor="#FFE3A3" android:textSize="12sp" android:textStyle="bold" android:maxLines="1"/>
+</LinearLayout>

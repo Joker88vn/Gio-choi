@@ -1,0 +1,28 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="horizontal" android:background="@drawable/w_bg_cream">
+ <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="2" android:orientation="vertical"
+  android:gravity="center" android:background="@drawable/w_bg_red_left" android:padding="8dp">
+  <TextView android:id="@+id/w_wd" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="THỨ NĂM"
+   android:textColor="#E6FFF7EA" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.14"/>
+  <TextView android:id="@+id/w_day" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center"
+   android:text="15" android:textColor="#FFF7EA" android:fontFamily="serif" android:textStyle="bold" android:includeFontPadding="false"
+   android:autoSizeTextType="uniform" android:autoSizeMinTextSize="28sp" android:autoSizeMaxTextSize="66sp" android:maxLines="1"/>
+  <TextView android:id="@+id/w_month" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tháng 10/2026"
+   android:textColor="#FFE3A3" android:textSize="12sp" android:textStyle="bold"/>
+ </LinearLayout>
+ <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="3" android:orientation="vertical"
+  android:gravity="center_vertical" android:paddingStart="14dp" android:paddingEnd="12dp" android:paddingTop="8dp" android:paddingBottom="8dp">
+  <TextView android:id="@+id/w_lunar" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Mùng 6 tháng 9"
+   android:textColor="#B3261E" android:textSize="18sp" android:fontFamily="serif" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+  <TextView android:id="@+id/w_canchi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp"
+   android:text="Ngày Nhâm Tuất · Tháng Mậu Tuất" android:textColor="#2A221E" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"/>
+  <TextView android:id="@+id/w_year" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Năm Bính Ngọ · Hàn lộ"
+   android:textColor="#5C514A" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"/>
+  <TextView android:id="@+id/w_hd" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp"
+   android:text="● Hắc đạo" android:textColor="#B3261E" android:textSize="12sp" android:textStyle="bold"/>
+  <TextView android:id="@+id/w_gio" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Giờ tốt: Dần, Thìn, Tỵ, Thân, Dậu, Hợi"
+   android:textColor="#968A80" android:textSize="11sp" android:maxLines="2" android:ellipsize="end"/>
+  <TextView android:id="@+id/w_hol" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp"
+   android:text="" android:textColor="#B3261E" android:textSize="12sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" android:visibility="gone"/>
+ </LinearLayout>
+</LinearLayout>

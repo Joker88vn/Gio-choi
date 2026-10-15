@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Âm Lịch</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ HÔM NAY ============ -->
+  <section class="view active" id="v-day">
+    <header class="topbar">
+      <div class="tb-title datepick">
+        <span id="d-title">Tháng 10, 2026</span>
+        <svg class="ic sm" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        <input type="date" class="date-overlay" id="d-picker">
+      </div>
+      <button class="icon-btn" id="btn-today" aria-label="Hôm nay">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6" class="fill"/></svg>
+      </button>
+    </header>
+
+    <div class="scroller" id="day-scroll">
+      <div class="hero-wrap" id="hero-wrap">
+        <div class="hero" id="hero">
+          <div class="hero-pattern"></div>
+          <div class="hero-top">
+            <span class="hero-weekday" id="h-weekday">THỨ NĂM</span>
+            <span class="hero-badge" id="h-badge">Hoàng đạo</span>
+          </div>
+          <div class="hero-day" id="h-day">15</div>
+          <div class="hero-month" id="h-month">Tháng Mười · 2026</div>
+          <div class="hero-holiday" id="h-holiday"></div>
+          <div class="hero-lunar">
+            <div class="moon" id="h-moon"></div>
+            <div class="hl-text">
+              <div class="hl-big"><span id="h-lday">6</span><small id="h-lmonth">tháng 9</small></div>
+              <div class="hl-sub" id="h-lyear">Năm Bính Ngọ · Ngày Nhâm Tuất</div>
+            </div>
+          </div>
+          <button class="hero-nav prev" id="h-prev" aria-label="Hôm trước"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button class="hero-nav next" id="h-next" aria-label="Hôm sau"><svg class="ic" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+      </div>
+
+      <div class="week-strip" id="week-strip"></div>
+
+      <div class="cards">
+        <div class="card" id="c-events" hidden></div>
+
+        <div class="card">
+          <div class="card-h"><span class="dot red"></span>Can chi & ngũ hành</div>
+          <div class="cc-grid">
+            <div><label>Ngày</label><b id="cc-day"></b></div>
+            <div><label>Tháng</label><b id="cc-month"></b></div>
+            <div><label>Năm</label><b id="cc-year"></b></div>
+          </div>
+          <div class="kv-list">
+            <div class="kv"><span>Ngũ hành ngày</span><b id="kv-napam"></b></div>
+            <div class="kv"><span>Tiết khí</span><b id="kv-tiet"></b></div>
+            <div class="kv"><span>Trực</span><b id="kv-truc"></b></div>
+            <div class="kv"><span>Nhị thập bát tú</span><b id="kv-sao"></b></div>
+            <div class="kv"><span>Thần trực nhật</span><b id="kv-than"></b></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><span class="dot gold"></span>Giờ hoàng đạo<span class="card-h-r" id="gio-now"></span></div>
+          <div class="gio-wrap">
+            <svg class="dial" id="dial" viewBox="0 0 200 200"></svg>
+            <ul class="gio-list" id="gio-list"></ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><span class="dot green"></span>Việc nên & kiêng</div>
+          <div class="yn">
+            <div class="yn-row good"><i>Nên</i><p id="yn-good"></p></div>
+            <div class="yn-row bad"><i>Kiêng</i><p id="yn-bad"></p></div>
+          </div>
+          <div class="warn" id="yn-warn"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><span class="dot blue"></span>Xuất hành & tuổi</div>
+          <div class="dir-grid">
+            <div class="dir"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg><label>Hỷ thần</label><b id="x-hy"></b></div>
+            <div class="dir"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5c0-1 1-1.6 2.5-1.6s2.5.7 2.5 1.7-1 1.4-2.5 1.7-2.6.8-2.6 1.9 1.1 1.8 2.6 1.8 2.5-.6 2.5-1.6"/></svg><label>Tài thần</label><b id="x-tai"></b></div>
+          </div>
+          <div class="kv-list">
+            <div class="kv"><span>Tuổi xung khắc</span><b id="x-xung"></b></div>
+            <div class="kv"><span>Lục hợp · Tam hợp</span><b id="x-hop"></b></div>
+          </div>
+        </div>
+
+        <div class="card quote">
+          <svg class="q-mark" viewBox="0 0 24 24"><path d="M10 7H6.5A2.5 2.5 0 004 9.5V13h4v4H4M20 7h-3.5A2.5 2.5 0 0014 9.5V13h4v4h-4"/></svg>
+          <p id="quote"></p>
+        </div>
+
+        <div class="tet-count" id="tet-count"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THÁNG ============ -->
+  <section class="view" id="v-month">
+    <header class="topbar">
+      <button class="icon-btn" id="m-prev" aria-label="Tháng trước"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <div class="tb-title center datepick">
+        <div><span id="m-title">Tháng 10, 2026</span><small id="m-sub">Tháng 8 – 9 · Bính Ngọ</small></div>
+        <input type="month" class="date-overlay" id="m-picker">
+      </div>
+      <button class="icon-btn" id="m-next" aria-label="Tháng sau"><svg class="ic" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    </header>
+    <div class="scroller">
+      <div class="month-card">
+        <div class="wd-row" id="wd-row"></div>
+        <div class="m-grid" id="m-grid"></div>
+        <div class="legend">
+          <span><i class="lg today"></i>Hôm nay</span>
+          <span><i class="lg hd"></i>Hoàng đạo</span>
+          <span><i class="lg hol"></i>Ngày lễ</span>
+          <span><i class="lg ev"></i>Sự kiện</span>
+        </div>
+      </div>
+      <div class="m-detail card" id="m-detail"></div>
+      <div class="card">
+        <div class="card-h"><span class="dot red"></span>Trong tháng này</div>
+        <ul class="ev-list" id="m-events"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SỰ KIỆN ============ -->
+  <section class="view" id="v-events">
+    <header class="topbar">
+      <div class="tb-title">Sự kiện & nhắc nhở</div>
+    </header>
+    <div class="scroller">
+      <div class="seg" id="ev-seg">
+        <button class="on" data-f="upcoming">Sắp tới</button>
+        <button data-f="mine">Của tôi</button>
+        <button data-f="holiday">Ngày lễ</button>
+      </div>
+      <ul class="ev-list big" id="ev-list"></ul>
+      <div class="empty" id="ev-empty" hidden>
+        <svg viewBox="0 0 64 64"><rect x="10" y="14" width="44" height="40" rx="8"/><path d="M10 26h44M22 8v10M42 8v10"/><path d="M26 40l5 5 9-10"/></svg>
+        <p>Chưa có sự kiện nào.<br>Thêm ngày giỗ, sinh nhật, kỷ niệm… app sẽ tự nhắc theo âm hoặc dương lịch.</p>
+      </div>
+    </div>
+    <button class="fab" id="fab-add" aria-label="Thêm sự kiện"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Thêm</button>
+  </section>
+
+  <!-- ============ TIỆN ÍCH ============ -->
+  <section class="view" id="v-tools">
+    <header class="topbar"><div class="tb-title">Tiện ích</div></header>
+    <div class="scroller">
+      <div class="card">
+        <div class="card-h"><span class="dot red"></span>Đổi ngày Âm ⇄ Dương</div>
+        <div class="seg small" id="conv-seg">
+          <button class="on" data-m="s2l">Dương → Âm</button>
+          <button data-m="l2s">Âm → Dương</button>
+        </div>
+        <div class="conv-in">
+          <div class="field"><label>Ngày</label><select id="cv-d"></select></div>
+          <div class="field"><label>Tháng</label><select id="cv-m"></select></div>
+          <div class="field"><label>Năm</label><input id="cv-y" type="number" inputmode="numeric" min="1800" max="2199"></div>
+        </div>
+        <label class="chk" id="cv-leap-wrap" hidden><input type="checkbox" id="cv-leap"> Tháng nhuận</label>
+        <div class="conv-out" id="cv-out"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="dot gold"></span>Tra tuổi & mệnh</div>
+        <div class="conv-in two">
+          <div class="field"><label>Năm sinh (âm lịch)</label><input id="age-y" type="number" inputmode="numeric" min="1900" max="2100"></div>
+        </div>
+        <div class="age-out" id="age-out"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="dot green"></span>Đếm ngày</div>
+        <div class="conv-in two">
+          <div class="field"><label>Từ ngày</label><input id="dd-a" type="date"></div>
+          <div class="field"><label>Đến ngày</label><input id="dd-b" type="date"></div>
+        </div>
+        <div class="conv-out" id="dd-out"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CÀI ĐẶT ============ -->
+  <section class="view" id="v-settings">
+    <header class="topbar"><div class="tb-title">Cài đặt</div></header>
+    <div class="scroller">
+      <div class="set-group">
+        <h4>Giao diện</h4>
+        <div class="set-row"><span>Chế độ</span>
+          <div class="seg small inline" id="set-theme">
+            <button data-v="auto">Tự động</button><button data-v="light">Sáng</button><button data-v="dark">Tối</button>
+          </div>
+        </div>
+        <div class="set-row"><span>Màu chủ đạo</span>
+          <div class="swatches" id="set-accent">
+            <button data-v="son" style="--c:#B3261E"></button>
+            <button data-v="ngoc" style="--c:#16705A"></button>
+            <button data-v="cham" style="--c:#2F4B8F"></button>
+            <button data-v="tram" style="--c:#7A4A2B"></button>
+            <button data-v="mua" style="--c:#7B3F8C"></button>
+          </div>
+        </div>
+        <div class="set-row"><span>Tuần bắt đầu</span>
+          <div class="seg small inline" id="set-week">
+            <button data-v="1">Thứ 2</button><button data-v="0">Chủ nhật</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <h4>Thông báo</h4>
+        <label class="set-row sw"><span>Ngày âm trên thanh trạng thái<small>Luôn hiện ngày âm lịch hôm nay</small></span><input type="checkbox" id="set-ongoing"><i></i></label>
+        <label class="set-row sw"><span>Nhắc Mùng 1 & Rằm<small>Báo trước một ngày và vào ngày</small></span><input type="checkbox" id="set-ram"><i></i></label>
+        <label class="set-row sw"><span>Nhắc ngày lễ, Tết</span><input type="checkbox" id="set-hol"><i></i></label>
+        <label class="set-row sw"><span>Nhắc sự kiện của tôi</span><input type="checkbox" id="set-ev"><i></i></label>
+        <div class="set-row"><span>Giờ nhắc</span><input type="time" id="set-time" class="time-in"></div>
+      </div>
+
+      <div class="set-group">
+        <h4>Widget màn hình chính</h4>
+        <div class="widget-list" id="widget-list"></div>
+        <p class="hint">Hoặc nhấn giữ màn hình chính → Widget → tìm “Âm Lịch”.</p>
+      </div>
+
+      <div class="set-group">
+        <h4>Thông tin</h4>
+        <div class="set-row"><span>Phiên bản</span><b>3.0</b></div>
+        <p class="hint">Tính theo thuật toán thiên văn của Hồ Ngọc Đức, múi giờ Việt Nam (GMT+7), chạy hoàn toàn không cần mạng. Thông tin hoàng đạo, trực, sao, hướng xuất hành mang tính tham khảo theo lịch vạn niên truyền thống.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BOTTOM NAV ============ -->
+  <nav class="tabbar" id="tabbar">
+    <button class="on" data-v="day"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="16" rx="3.5"/><path d="M4 9.5h16M9 2.5v4M15 2.5v4"/><path d="M10.5 13.5l1.5-1v5" /></svg><span>Hôm nay</span></button>
+    <button data-v="month"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="16" rx="3.5"/><path d="M4 9.5h16M9 2.5v4M15 2.5v4"/><path d="M8 13h.01M12 13h.01M16 13h.01M8 16.5h.01M12 16.5h.01M16 16.5h.01" class="dots"/></svg><span>Lịch tháng</span></button>
+    <button data-v="events"><svg class="ic" viewBox="0 0 24 24"><path d="M6 10a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19.5a2 2 0 004 0"/></svg><span>Sự kiện</span></button>
+    <button data-v="tools"><svg class="ic" viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span>Tiện ích</span></button>
+    <button data-v="settings"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2L5.5 5.5"/></svg><span>Cài đặt</span></button>
+  </nav>
+
+  <!-- ============ SHEET ============ -->
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet">
+    <div class="grab"></div>
+    <div id="sheet-body"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="lunar.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

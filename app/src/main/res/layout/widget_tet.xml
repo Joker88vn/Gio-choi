@@ -1,0 +1,7 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="vertical" android:gravity="center" android:background="@drawable/w_bg_red" android:padding="6dp">
+ <TextView android:id="@+id/w_num" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="114"
+  android:textColor="#FFE3A3" android:textSize="30sp" android:fontFamily="serif" android:textStyle="bold" android:includeFontPadding="false"/>
+ <TextView android:id="@+id/w_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ngày nữa đến Tết Đinh Mùi"
+  android:textColor="#FFF7EA" android:textSize="11sp" android:gravity="center" android:maxLines="2"/>
+</LinearLayout>

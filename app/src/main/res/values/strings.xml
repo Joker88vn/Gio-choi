@@ -1,0 +1,8 @@
+<resources>
+<string name="app_name">Âm Lịch</string>
+<string name="w_day">Lịch ngày: dương lịch, âm lịch, can chi</string>
+<string name="w_detail">Chi tiết ngày: âm lịch, can chi, hoàng đạo, giờ tốt</string>
+<string name="w_month">Lịch tháng có ngày âm, chuyển tháng ngay trên widget</string>
+<string name="w_tet">Đếm ngược số ngày đến Tết Nguyên Đán</string>
+<string name="w_line">Dòng ngày âm – dương nền trong suốt</string>
+</resources>

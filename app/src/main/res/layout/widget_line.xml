@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="vertical" android:gravity="center_vertical" android:background="@drawable/w_bg_line" android:paddingStart="8dp" android:paddingEnd="8dp">
+ <TextView android:id="@+id/w_l1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Thứ năm, 15 tháng 10"
+  android:textColor="#FFFFFF" android:textSize="22sp" android:fontFamily="serif" android:textStyle="bold" android:maxLines="1"
+  android:shadowColor="#99000000" android:shadowRadius="6" android:shadowDy="1"/>
+ <TextView android:id="@+id/w_l2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Mùng 6 tháng 9 · Bính Ngọ · Ngày Nhâm Tuất"
+  android:textColor="#F2FFFFFF" android:textSize="13sp" android:maxLines="1" android:ellipsize="end"
+  android:shadowColor="#99000000" android:shadowRadius="6" android:shadowDy="1"/>
+</LinearLayout>
