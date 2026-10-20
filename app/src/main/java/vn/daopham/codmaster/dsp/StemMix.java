@@ -24,12 +24,16 @@ public final class StemMix {
         public double pocket = 2.0;      // dB tối đa nhường chỗ
         public double beatBass = 0;
         public double beatWidth = 1.1;
+        public double deReverb = 0.5;    // 0..1 khử vang có sẵn trong giọng (Suno)
+        public double deDelay = 0.6;     // 0..1 khử delay có sẵn trong giọng
+        public boolean keepVocal;        // giữ lại giọng đã xử lý để nghe riêng
 
         public StemSettings copy() {
             StemSettings s = new StemSettings();
             s.vocalDb = vocalDb; s.vocalHpf = vocalHpf; s.vocalComp = vocalComp; s.deEss = deEss;
             s.vocalPresence = vocalPresence; s.vocalAir = vocalAir; s.vocalMud = vocalMud; s.reverb = reverb;
             s.beatDb = beatDb; s.pocket = pocket; s.beatBass = beatBass; s.beatWidth = beatWidth;
+            s.deReverb = deReverb; s.deDelay = deDelay; s.keepVocal = keepVocal;
             return s;
         }
 
@@ -37,7 +41,8 @@ public final class StemMix {
             return o != null && vocalDb == o.vocalDb && vocalHpf == o.vocalHpf && vocalComp == o.vocalComp
                     && deEss == o.deEss && vocalPresence == o.vocalPresence && vocalAir == o.vocalAir
                     && vocalMud == o.vocalMud && reverb == o.reverb && beatDb == o.beatDb && pocket == o.pocket
-                    && beatBass == o.beatBass && beatWidth == o.beatWidth;
+                    && beatBass == o.beatBass && beatWidth == o.beatWidth
+                    && deReverb == o.deReverb && deDelay == o.deDelay;
         }
     }
 
@@ -45,6 +50,8 @@ public final class StemMix {
         public Mastering.Result master;
         public double vocalLufs, beatLufs;       // stem gốc
         public double maxDeEssDb, maxPocketDb;   // mức tác động lớn nhất
+        public VocalDeverb.Analysis deverb;      // kết quả đo vang/delay của giọng gốc
+        public float[] vocalL, vocalR;           // giọng đã xử lý (cùng độ lớn như giọng gốc) — nếu keepVocal
     }
 
     private static final int STEP = 65536;
@@ -84,7 +91,14 @@ public final class StemMix {
 
         // 1) Chuỗi giọng hát (ở mức −20 LUFS để ngưỡng ổn định)
         if (hasVocal) {
-            double pre = lin(-20 - lv0);
+            System.arraycopy(vL, 0, wvL, 0, n);
+            System.arraycopy(vR, 0, wvR, 0, n);
+            // 1a) khử vang + delay có sẵn (trước mọi xử lý khác, vì nén sẽ làm đuôi vang to lên)
+            res.deverb = VocalDeverb.process(wvL, wvR, n, fs, ss.deReverb, ss.deDelay, p, 0.10, 0.21);
+            double lvd = (ss.deReverb > 0.01 || ss.deDelay > 0.01)
+                    ? Mastering.measure(wvL, wvR, n, fs, p, 0.21, 0.22, "Đo giọng sau khử vang")[0] : lv0;
+            if (lvd < -70) lvd = lv0;
+            double pre = lin(-20 - lvd);
             Biquad[] hp1 = {Biquad.highPass(fs, ss.vocalHpf, 0.5412), Biquad.highPass(fs, ss.vocalHpf, 0.5412)};
             Biquad[] hp2 = {Biquad.highPass(fs, ss.vocalHpf, 1.3066), Biquad.highPass(fs, ss.vocalHpf, 1.3066)};
             Biquad[] mud = {Biquad.peak(fs, 280, 1.1, ss.vocalMud), Biquad.peak(fs, 280, 1.1, ss.vocalMud)};
@@ -109,7 +123,7 @@ public final class StemMix {
             double maxEs = 0;
 
             for (int i = 0; i < n; i++) {
-                double l = vL[i] * pre, r = vR[i] * pre;
+                double l = wvL[i] * pre, r = wvR[i] * pre;
                 l = mud[0].process(hp2[0].process(hp1[0].process(l)));
                 r = mud[1].process(hp2[1].process(hp1[1].process(r)));
 
@@ -144,7 +158,7 @@ public final class StemMix {
                 r = air[1].process(pres[1].process(r));
                 wvL[i] = (float) l;
                 wvR[i] = (float) r;
-                if ((i & (STEP - 1)) == 0) tick(p, 0.10 + 0.15 * i / n, "Xử lý giọng hát");
+                if ((i & (STEP - 1)) == 0) tick(p, 0.22 + 0.03 * i / n, "Xử lý giọng hát");
             }
             res.maxDeEssDb = -maxEs;
 
@@ -207,6 +221,13 @@ public final class StemMix {
             gb = lin(lb0 - lb1 + ss.beatDb);
         }
         float fv = (float) gv, fb = (float) gb;
+        if (ss.keepVocal && hasVocal) {
+            // bản nghe riêng: giọng đã xử lý, cùng độ lớn với giọng gốc
+            float fk = (float) lin(-ss.vocalDb) * fv;
+            res.vocalL = new float[n];
+            res.vocalR = new float[n];
+            for (int i = 0; i < n; i++) { res.vocalL[i] = wvL[i] * fk; res.vocalR[i] = wvR[i] * fk; }
+        }
         for (int i = 0; i < n; i++) {
             outL[i] = outL[i] * fb + wvL[i] * fv;
             outR[i] = outR[i] * fb + wvR[i] * fv;

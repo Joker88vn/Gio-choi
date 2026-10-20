@@ -2,6 +2,7 @@ package vn.daopham.codmaster.desktop;
 
 import vn.daopham.codmaster.dsp.Mastering;
 import vn.daopham.codmaster.dsp.StemMix;
+import vn.daopham.codmaster.dsp.VocalDeverb;
 import vn.daopham.codmaster.desktop.Widgets.*;
 
 import javax.imageio.ImageIO;
@@ -20,7 +21,7 @@ import java.util.prefs.Preferences;
 
 /** COD Master cho Windows — cửa sổ chính. */
 public final class Main {
-    static final String VERSION = "1.3.0";
+    static final String VERSION = "1.4.0";
 
     public static void main(String[] args) {
         System.setProperty("awt.useSystemAAFontSettings", "lcd");
@@ -73,7 +74,8 @@ public final class Main {
     private JLabel fileName, fileInfo;
     private PresetList presetList;
     private final List<ParamRow> paramRows = new ArrayList<>();
-    private Segmented ab, fmtSeg;
+    private Segmented ab, ab4, fmtSeg;
+    private JLabel deverbInfo;
     private WaveView wave;
     private RoundIcon playBtn;
     private JLabel nowText, timeText;
@@ -152,7 +154,7 @@ public final class Main {
         t.row(sub, 0);
         h.add(t, 0, 12);
         h.add(Box.createHorizontalGlue(), 1, 0);
-        h.add(Widgets.label("Space: phát / dừng   ·   B: đổi Gốc ↔ Master", Theme.font(12f), Theme.FAINT), 0, 0);
+        h.add(Widgets.label("Space: phát / dừng  ·  B: Gốc ↔ Master  ·  V: giọng gốc ↔ mới", Theme.font(12f), Theme.FAINT), 0, 0);
         h.add(chip("EBU R128 · True Peak 8×"), 0, 16);
         return h;
     }
@@ -251,8 +253,12 @@ public final class Main {
         Card mon = new Card(new BorderLayout(0, 14), 18);
         HStack top = new HStack();
         top.add(Widgets.caps("Nghe thử & so sánh"), 1, 0);
-        ab = new Segmented(new String[]{"GỐC", "MASTER"}, 1, 32, i -> setAB(i == 1));
+        ab = new Segmented(new String[]{"GỐC", "MASTER"}, 1, 32, i -> setAB(i));
+        ab4 = new Segmented(new String[]{"GỐC", "MASTER", "GIỌNG GỐC", "GIỌNG MỚI"}, 1, 32, i -> setAB(i));
+        ab4.setToolTipText("GIỌNG GỐC / GIỌNG MỚI: nghe riêng giọng hát trước và sau khi khử vang, delay, xử lý");
+        ab4.setVisible(false);
         top.add(ab, 0, 0);
+        top.add(ab4, 0, 0);
         mon.add(top, BorderLayout.NORTH);
 
         wave = new WaveView();
@@ -341,8 +347,10 @@ public final class Main {
                     });
             stemRows.add(r);
             VStack pg = p.tab() == 1 ? page1 : page2;
-            pg.row(r, pg.getComponentCount() == 0 ? 0 : 4);
+            pg.row(r, pg.getComponentCount() == 0 ? 0 : 2);
         }
+        deverbInfo = Widgets.label(" ", Theme.font(11.5f), Theme.SUB);
+        page1.row(deverbInfo, 6);
         page1.filler();
         page2.filler();
         tunePages.add(page0, "t0");
@@ -531,13 +539,20 @@ public final class Main {
     }
 
     private void refreshPlayer() {
-        boolean has = track != null, m = player.useMaster && masterL != null;
+        boolean has = track != null;
         playBtn.setEnabled(has);
         playBtn.setKind(player.isPlaying() ? Theme.IconKind.PAUSE : Theme.IconKind.PLAY);
-        ab.setSelected(m ? 1 : 0);
-        ab.disabled[1] = masterL == null;
-        ab.repaint();
-        nowText.setText(!has ? "Chưa có bài" : m ? (matchLevel ? "Đang nghe: Master (đã cân âm lượng)" : "Đang nghe: Master") : "Đang nghe: Bản gốc");
+        int eff = has ? player.effective() : Player.ORIG;
+        Segmented seg = stemMode ? ab4 : ab;
+        ab.setVisible(!stemMode);
+        ab4.setVisible(stemMode);
+        seg.setSelected(Math.min(eff, seg.items.length - 1));
+        for (int i = 1; i < seg.items.length; i++) seg.disabled[i] = !player.has(i);
+        seg.repaint();
+        String[] names = {"Bản gốc", "Master", "Giọng gốc (nghe riêng)", "Giọng mới (nghe riêng)"};
+        String nt = !has ? "Chưa có bài" : "Đang nghe: " + names[eff];
+        if (has && eff == Player.MASTER && matchLevel) nt += " (đã cân âm lượng)";
+        nowText.setText(nt);
         matchBtn.style = matchLevel ? Style.SOFT : Style.OUTLINE;
         matchBtn.setText(matchLevel ? "✓ Cân âm lượng" : "Cân âm lượng");
         matchBtn.setEnabled(masterL != null);
@@ -545,6 +560,14 @@ public final class Main {
     }
 
     private void refreshStats() {
+        VocalDeverb.Analysis da = stemRes == null ? null : stemRes.deverb;
+        if (da == null || (stem.deReverb <= 0.01 && stem.deDelay <= 0.01)) {
+            deverbInfo.setText("Vang/delay của Suno được đo khi bấm MASTER");
+        } else {
+            String rv = da.dryLike ? "giọng khô sẵn" : (da.reverbMeasured ? "" : "~") + String.format(Locale.US, "vang ~%.1f s", da.t60);
+            String dl = da.delayFound ? String.format(Locale.US, "delay %.0f ms", da.delayMs) : "không có delay";
+            deverbInfo.setText("Giọng gốc: " + rv + " · " + dl + "  (phím V để so)");
+        }
         if (stemMode && stemRes != null && result != null) {
             tLen.title = "NHƯỜNG CHỖ GIỌNG";
             tLen.set(Theme.num(stemRes.maxPocketDb), "dB", "khử xì tối đa " + Theme.num(stemRes.maxDeEssDb) + " dB");
@@ -634,7 +657,7 @@ public final class Main {
                     singleName = name;
                     singleFile = f;
                     rebuildActive();
-                    player.useMaster = true;
+                    player.sel = Player.MASTER;
                     setBusy(false, null, 0);
                     refreshAll();
                     if (System.getProperty("codmaster.demo") != null) startMaster();
@@ -660,6 +683,7 @@ public final class Main {
         cancel = false;
         Mastering.Settings s = settings.copy();
         StemMix.StemSettings stemSnap = stemMode ? stem.copy() : null;
+        if (stemSnap != null) stemSnap.keepVocal = true;
         AudioEngine.Track vSnap = vocal, bSnap = beat;
         if (stemMode && (vSnap == null || bSnap == null)) return;
         setBusy(true, "Chuẩn bị…", 0);
@@ -702,7 +726,8 @@ public final class Main {
                     masterL = l; masterR = r; result = res; masteredWith = s; masterPeaks = pk;
                     stemRes = fsres; masteredStem = stemSnap;
                     player.setMaster(l, r);
-                    player.useMaster = true;
+                    if (fsres != null && fsres.vocalL != null) player.setAlt(Player.VOCAL_NEW, fsres.vocalL, fsres.vocalR);
+                    player.sel = Player.MASTER;
                     applyMatch();
                     setBusy(false, String.format(Locale.US, "✓ Master xong trong %.1f giây — %s LUFS, đỉnh %s dBTP",
                             secs, Theme.num(res.outLufs), Theme.num(res.outTpDb)), 1);
@@ -738,9 +763,9 @@ public final class Main {
         refreshPlayer();
     }
 
-    private void setAB(boolean master) {
-        if (master && masterL == null) { ab.setSelected(0); return; }
-        player.useMaster = master;
+    private void setAB(int idx) {
+        if (!player.has(idx)) { refreshPlayer(); return; }
+        player.sel = idx;
         refreshPlayer();
     }
 
@@ -854,6 +879,7 @@ public final class Main {
 
     private void clearMaster() {
         player.setMaster(null, null);
+        player.setAlt(Player.VOCAL_NEW, null, null);
         masterL = masterR = null;
         result = null;
         masteredWith = null;
@@ -884,6 +910,7 @@ public final class Main {
         track = t;
         origPeaks = t == null ? null : WaveView.peaks(t.left, t.right, t.frames);
         player.setSource(t);
+        if (stemMode && t != null) player.setAlt(Player.VOCAL_ORIG, vocal.left, vocal.right);
     }
 
     static String cleanStemBase(String name) {
@@ -950,7 +977,7 @@ public final class Main {
                     if (isVocal) { vocal = t; vocalName = f.getName(); vocalFile = f; }
                     else { beat = t; beatName = f.getName(); beatFile = f; }
                     rebuildActive();
-                    player.useMaster = true;
+                    player.sel = Player.MASTER;
                     setBusy(false, null, 0);
                     refreshAll();
                     if (after != null) after.run();
@@ -990,7 +1017,10 @@ public final class Main {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
             if (e.getID() != KeyEvent.KEY_PRESSED || !frame.isActive()) return false;
             if (e.getKeyCode() == KeyEvent.VK_SPACE) { togglePlay(); return true; }
-            if (e.getKeyCode() == KeyEvent.VK_B) { setAB(!(player.useMaster && masterL != null)); return true; }
+            if (e.getKeyCode() == KeyEvent.VK_B) { setAB(player.effective() == Player.MASTER ? Player.ORIG : Player.MASTER); return true; }
+            if (e.getKeyCode() == KeyEvent.VK_V && stemMode) {
+                setAB(player.effective() == Player.VOCAL_NEW ? Player.VOCAL_ORIG : Player.VOCAL_NEW); return true;
+            }
             return false;
         });
     }

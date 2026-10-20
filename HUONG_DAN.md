@@ -31,3 +31,10 @@ Nạp riêng **giọng hát** và **nhạc nền** (ví dụ stem Vocals / Instr
 - Giọng: cắt trầm, gọn đục, nén giọng RMS, khử xì động (chỉ dải 5–10 kHz khi có xì), rõ lời, sáng giọng, vang plate.
 - Nhạc nền: trầm riêng, độ rộng riêng, **nhường chỗ cho giọng** — EQ động hạ vùng 1–4.5 kHz của nhạc khi giọng cất lên.
 - Mỗi stem được giữ đúng độ lớn như bản gốc sau xử lý, rồi cộng/trừ theo thanh "to/nhỏ", sau đó master tổng.
+
+### Khử vang & delay có sẵn trong giọng Suno (bản Windows 1.4)
+Trong chế độ 2 stem, tab GIỌNG có thêm **Khử vang Suno** và **Khử delay Suno** (xử lý đầu tiên trong chuỗi giọng):
+- Tự đo độ dài vang (T60) từ các chỗ kết thúc câu; nhận ra giọng khô sẵn để không đụng vào.
+- Dò delay bằng cepstrum (đỉnh nhọn ở thời gian trễ), phân biệt với rung giọng (vibrato).
+- Trừ phổ vang muộn + tiếng dội theo khung STFT, làm mượt để hạn chế tiếng lạo xạo, kèm cổng đuôi vang.
+- Nghe so sánh riêng giọng: GIỌNG GỐC ↔ GIỌNG MỚI (phím V).

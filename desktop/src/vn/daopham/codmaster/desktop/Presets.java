@@ -95,6 +95,10 @@ final class Presets {
                   ToDoubleFunction<StemSettings> get, BiConsumer<StemSettings, Double> set, DoubleFunction<String> fmt) {}
 
     static final List<SParam> STEM_PARAMS = List.of(
+            new SParam(1, "Khử vang Suno", "Hạ đuôi vang có sẵn trong giọng (tự đo độ dài vang). Mạnh quá giọng sẽ khô, hơi 'lạo xạo'", 0, 1, 0.05,
+                    s -> s.deReverb, (s, v) -> s.deReverb = v, Presets::pct),
+            new SParam(1, "Khử delay Suno", "Tự dò tiếng dội lặp lại và hạ nó xuống. Nếu bài không có delay thì không tác động", 0, 1, 0.05,
+                    s -> s.deDelay, (s, v) -> s.deDelay = v, Presets::pct),
             new SParam(1, "Giọng to / nhỏ", "So với cân bằng gốc giữa giọng và nhạc", -6, 6, 0.5,
                     s -> s.vocalDb, (s, v) -> s.vocalDb = v, v -> signed(v, "dB")),
             new SParam(1, "Cắt trầm giọng", "Lọc bỏ tiếng ù, tiếng thở trầm dưới tần số này", 60, 200, 5,
