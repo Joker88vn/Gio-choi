@@ -113,7 +113,7 @@ final class Presets {
                     s -> s.vocalPresence, (s, v) -> s.vocalPresence = v, v -> signed(v, "dB")),
             new SParam(1, "Sáng giọng", "Kệ cao 11 kHz trên giọng — trong, có hơi", -3, 6, 0.5,
                     s -> s.vocalAir, (s, v) -> s.vocalAir = v, v -> signed(v, "dB")),
-            new SParam(1, "Độ vang", "Vang kiểu plate cho giọng — bolero, trữ tình nên có", 0, 1, 0.05,
+            new SParam(1, "Độ vang mới", "Vang plate sạch thêm vào sau khi khử — bolero, trữ tình nên có", 0, 1, 0.05,
                     s -> s.reverb, (s, v) -> s.reverb = v, Presets::pct),
             new SParam(2, "Nhạc nền to / nhỏ", "So với cân bằng gốc", -6, 6, 0.5,
                     s -> s.beatDb, (s, v) -> s.beatDb = v, v -> signed(v, "dB")),

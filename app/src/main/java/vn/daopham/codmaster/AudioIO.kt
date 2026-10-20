@@ -222,3 +222,66 @@ object AudioIO {
         progress(1f)
     }
 }
+
+/** Tiện ích cho chế độ 2 stem. */
+object StemIO {
+    /** Đổi tần số mẫu (nội suy Hermite bậc 3) — chỉ dùng khi 2 stem khác tần số. */
+    fun resample(d: Decoded, target: Int): Decoded {
+        if (d.sampleRate == target) return d
+        val ratio = d.sampleRate.toDouble() / target
+        val n = ((d.frames - 2) / ratio).toInt().coerceAtLeast(1)
+        val l = ShortArray(n)
+        val r = ShortArray(n)
+        fun herm(a: ShortArray, k: Int, t: Double, len: Int): Short {
+            val y0 = a[(k - 1).coerceIn(0, len - 1)].toDouble()
+            val y1 = a[k.coerceIn(0, len - 1)].toDouble()
+            val y2 = a[(k + 1).coerceIn(0, len - 1)].toDouble()
+            val y3 = a[(k + 2).coerceIn(0, len - 1)].toDouble()
+            val c1 = 0.5 * (y2 - y0)
+            val c2 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3
+            val c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2)
+            val v = ((c3 * t + c2) * t + c1) * t + y1
+            return v.roundToInt().coerceIn(-32768, 32767).toShort()
+        }
+        for (i in 0 until n) {
+            val x = i * ratio
+            val k = x.toInt()
+            val t = x - k
+            l[i] = herm(d.left, k, t, d.frames)
+            r[i] = herm(d.right, k, t, d.frames)
+        }
+        return Decoded(target, l, r, n, d.srcChannels)
+    }
+
+    /** Tổng thô của 2 stem (để nghe "bản gốc" và vẽ sóng). */
+    fun mix(v: Decoded, b: Decoded): Decoded {
+        val n = maxOf(v.frames, b.frames)
+        val l = ShortArray(n)
+        val r = ShortArray(n)
+        for (i in 0 until n) {
+            val a = (if (i < v.frames) v.left[i].toInt() else 0) + (if (i < b.frames) b.left[i].toInt() else 0)
+            val c = (if (i < v.frames) v.right[i].toInt() else 0) + (if (i < b.frames) b.right[i].toInt() else 0)
+            l[i] = a.coerceIn(-32768, 32767).toShort()
+            r[i] = c.coerceIn(-32768, 32767).toShort()
+        }
+        return Decoded(v.sampleRate, l, r, n, 2)
+    }
+
+    /** Bỏ chữ "Vocals", "Instrumental"… khỏi tên file stem. */
+    fun cleanBase(name: String): String {
+        val b = name.substringBeforeLast('.')
+            .replace(Regex("(?i)[\\s_\\-]*[(\\[]?\\s*(vocals?|vox|acapella|instrumental|inst|beat|karaoke|backing)\\s*[)\\]]?"), "")
+            .trim()
+        return b.ifBlank { "bai-nhac" }
+    }
+
+    fun looksVocal(n: String): Boolean {
+        val s = n.lowercase()
+        return listOf("vocal", "vox", "acapella", "a cappella", "giong", "giọng", "voice").any { s.contains(it) }
+    }
+
+    fun looksBeat(n: String): Boolean {
+        val s = n.lowercase()
+        return listOf("instrumental", "inst", "beat", "karaoke", "backing", "nhac nen", "nhạc nền", "music").any { s.contains(it) }
+    }
+}

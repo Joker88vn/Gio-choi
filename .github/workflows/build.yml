@@ -21,7 +21,15 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          set +e
+          ./gradlew assembleRelease --no-daemon > build.log 2>&1
+          code=$?
+          set -e
+          tail -30 build.log
+          if [ $code -ne 0 ]; then
+            grep -E "^e: |error:|What went wrong" -A3 build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit $code
+          fi
           cp app/build/outputs/apk/release/app-release.apk /tmp/CODMaster.apk
       - uses: softprops/action-gh-release@v2
         with:

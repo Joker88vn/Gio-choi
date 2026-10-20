@@ -240,7 +240,8 @@ public final class VocalDeverb {
 
         double gateDb = -(4 + 10 * Math.max(useRev ? rv : 0, useEcho ? dl : 0)), gateEnv = 0;
         double gateAtt = Math.exp(-hopSec / 0.040), gateRel = Math.exp(-hopSec / 0.008);
-        float[] outL = new float[n], outR = new float[n];
+        // cộng chồng (OLA) trong bộ đệm N mẫu, ghi đè tại chỗ phần đã xong — không cần mảng phụ cỡ cả bài
+        double[] accL = new double[N], accR = new double[N];
         double[] Rv = new double[K], G = new double[K], G2 = new double[K], G2s = new double[K];
         java.util.Arrays.fill(G, 1);
         int ringD = Nd + 1, ringP = Le + 1;
@@ -313,16 +314,20 @@ public final class VocalDeverb {
             }
             fft.run(re, im, true);
             for (int i = 0; i < N; i++) {
-                int s = start + i;
-                if (s >= 0 && s < n) {
-                    outL[s] += (float) (re[i] * win[i] * olaNorm);
-                    outR[s] += (float) (im[i] * win[i] * olaNorm);
-                }
+                accL[i] += re[i] * win[i] * olaNorm;
+                accR[i] += im[i] * win[i] * olaNorm;
             }
+            // mẫu [start, start+hop) đã đủ mọi khung chồng lên → ghi ra; các khung sau chỉ đọc từ start+hop trở đi
+            for (int i = 0; i < hop; i++) {
+                int s = start + i;
+                if (s >= 0 && s < n) { L[s] = (float) accL[i]; R[s] = (float) accR[i]; }
+            }
+            System.arraycopy(accL, hop, accL, 0, N - hop);
+            System.arraycopy(accR, hop, accR, 0, N - hop);
+            java.util.Arrays.fill(accL, N - hop, N, 0);
+            java.util.Arrays.fill(accR, N - hop, N, 0);
             if ((m & 255) == 0) tick(p, pMid, p1, m / (double) M, "Khử vang & delay giọng");
         }
-        System.arraycopy(outL, 0, L, 0, n);
-        System.arraycopy(outR, 0, R, 0, n);
         tick(p, pMid, p1, 1, "Khử vang & delay giọng");
         return an;
     }

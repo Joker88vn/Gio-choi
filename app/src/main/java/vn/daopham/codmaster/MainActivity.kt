@@ -22,12 +22,27 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import vn.daopham.codmaster.dsp.Mastering
+import vn.daopham.codmaster.dsp.StemMix
 import kotlin.math.pow
 
 /** Trạng thái sống ngoài Activity (xoay màn hình / mở lại không mất bài). */
 object App {
+    // bản gốc đang dùng (1 file, hoặc tổng thô của 2 stem)
     var decoded: Decoded? = null
     var name: String = ""
+    // chế độ 1 file
+    var single: Decoded? = null
+    var singleName: String = ""
+    // chế độ 2 stem
+    var stemMode = false
+    var vocal: Decoded? = null
+    var beat: Decoded? = null
+    var vocalName = ""
+    var beatName = ""
+    val stem: StemMix.StemSettings = StemMix.StemSettings().also { StemDefs.all[0].applyTo(it) }
+    var masteredStem: StemMix.StemSettings? = null
+    var stemRes: StemMix.Result? = null
+
     var settings: Mastering.Settings = Mastering.Settings().also { Presets.all[0].applyTo(it) }
     var presetIdx = 0
     var masterL: FloatArray? = null
@@ -39,6 +54,7 @@ object App {
     var exportBits = 24
     var matchLevel = false
     var busy = false
+    var tuneTab = 0
     var onEnded: (() -> Unit)? = null
     val player = Player { onEnded?.invoke() }
 }
@@ -47,6 +63,9 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_OPEN = 1
         private const val REQ_SAVE = 2
+        private const val REQ_VOCAL = 3
+        private const val REQ_BEAT = 4
+        private const val REQ_STEMS = 5
     }
 
     private val ui = Handler(Looper.getMainLooper())
@@ -56,21 +75,31 @@ class MainActivity : Activity() {
     private lateinit var fileName: TextView
     private lateinit var fileInfo: TextView
     private lateinit var pickBtn: TextView
+    private lateinit var modeSeg: List<TextView>
+    private lateinit var singleBox: LinearLayout
+    private lateinit var stemBox: LinearLayout
+    private lateinit var vocalSlot: Slot
+    private lateinit var beatSlot: Slot
     // monitor
     private lateinit var wave: WaveView
     private lateinit var timeText: TextView
     private lateinit var nowText: TextView
-    private lateinit var abOrig: TextView
-    private lateinit var abMaster: TextView
+    private lateinit var ab2Box: LinearLayout
+    private lateinit var ab2: List<TextView>
+    private lateinit var ab4Box: LinearLayout
+    private lateinit var ab4: List<TextView>
     private lateinit var matchChip: TextView
     private val playButtons = ArrayList<ImageView>()
     private val tileVal = ArrayList<TextView>()
     private val tileSub = ArrayList<TextView>()
     // style / tune
     private val presetViews = ArrayList<TextView>()
-    private val paramBars = ArrayList<SeekBar>()
-    private val paramVals = ArrayList<TextView>()
+    private val refreshers = ArrayList<() -> Unit>()
     private var suppressParam = false
+    private lateinit var tabBox: LinearLayout
+    private lateinit var tabs: List<TextView>
+    private val pages = ArrayList<LinearLayout>()
+    private lateinit var deverbInfo: TextView
     // export
     private lateinit var bits24: TextView
     private lateinit var bits16: TextView
@@ -83,6 +112,8 @@ class MainActivity : Activity() {
     private lateinit var busyBar: ProgressBar
     private lateinit var busyText: TextView
     private val needFile = ArrayList<View>()
+
+    private class Slot(val root: LinearLayout, val name: TextView, val info: TextView, val btn: TextView)
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -116,16 +147,23 @@ class MainActivity : Activity() {
         ui.removeCallbacks(ticker)
     }
 
+    @Suppress("DEPRECATION")
     private fun handleIntent(i: Intent?) {
         i ?: return
-        val uri: Uri? = when (i.action) {
-            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33)
-                i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-            else i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            Intent.ACTION_VIEW -> i.data
-            else -> null
+        when (i.action) {
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val list: List<Uri> = (if (Build.VERSION.SDK_INT >= 33)
+                    i.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else i.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)) ?: arrayListOf()
+                if (list.size >= 2) loadTwo(list[0], list[1]) else if (list.size == 1) loadFile(list[0])
+            }
+            Intent.ACTION_SEND -> {
+                val u = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                if (u != null) loadFile(u)
+            }
+            Intent.ACTION_VIEW -> i.data?.let { loadFile(it) }
         }
-        if (uri != null) loadFile(uri)
     }
 
     // ───────────────────────────── thành phần giao diện ─────────────────────────────
@@ -150,30 +188,32 @@ class MainActivity : Activity() {
             setOnClickListener { onClick() }
         }
 
-    /** Nút gạt hai lựa chọn kiểu phòng thu. */
-    private fun segmented(a: String, b: String, onA: () -> Unit, onB: () -> Unit): Triple<LinearLayout, TextView, TextView> {
+    /** Nút gạt nhiều lựa chọn kiểu phòng thu. fill = các ô chia đều toàn bộ chiều ngang. */
+    private fun segmented(items: List<String>, fill: Boolean, textSp: Float = 12.5f, onPick: (Int) -> Unit): Pair<LinearLayout, List<TextView>> {
         val box = hbox().apply {
             background = rounded(Pal.CARD2, 999, Pal.LINE)
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
-        fun seg(t: String, f: () -> Unit) = TextView(this).apply {
-            text = t
-            textSize = 12.5f
-            typeface = SANS_MEDIUM
-            gravity = Gravity.CENTER
-            setPadding(dp(14), dp(6), dp(14), dp(6))
-            isClickable = true
-            setOnClickListener { f() }
+        val views = items.mapIndexed { i, t ->
+            TextView(this).apply {
+                text = t
+                textSize = textSp
+                typeface = SANS_MEDIUM
+                gravity = Gravity.CENTER
+                maxLines = 1
+                setPadding(dp(if (fill) 4 else 14), dp(6), dp(if (fill) 4 else 14), dp(6))
+                isClickable = true
+                setOnClickListener { onPick(i) }
+            }
         }
-        val ta = seg(a, onA)
-        val tb = seg(b, onB)
-        box.add(ta, WRAP, WRAP)
-        box.add(tb, WRAP, WRAP)
-        return Triple(box, ta, tb)
+        for (v in views) {
+            if (fill) box.add(v, 0, WRAP, 1f) else box.add(v, WRAP, WRAP)
+        }
+        return Pair(box, views)
     }
 
-    private fun styleSeg(t: TextView, on: Boolean) {
-        t.setTextColor(if (on) Pal.ACC_INK else Pal.SUB)
+    private fun styleSeg(t: TextView, on: Boolean, enabled: Boolean = true) {
+        t.setTextColor(if (on) Pal.ACC_INK else if (enabled) Pal.SUB else Pal.LINE)
         t.background = if (on) rounded(Pal.ACC, 999) else null
     }
 
@@ -190,6 +230,76 @@ class MainActivity : Activity() {
         tileVal.add(value)
         tileSub.add(sub)
         return v
+    }
+
+    /** Một hàng chỉnh: tên (chạm để xem giải thích) | thanh kéo | giá trị. */
+    private fun paramRow(
+        title: String, hint: String, steps: Int, fromIndex: (Int) -> Double, toIndex: (Double) -> Int,
+        fmt: (Double) -> String, get: () -> Double, set: (Double) -> Unit,
+    ): LinearLayout {
+        val row = hbox()
+        val name = label(title, 12.5f, Pal.INK).apply {
+            maxLines = 2
+            isClickable = true
+            setOnClickListener { toast("$title: $hint") }
+        }
+        row.add(name, dp(100), WRAP)
+        val v = label("", 12f, Pal.ACC, SANS_MEDIUM).apply { gravity = Gravity.END; maxLines = 1 }
+        val sb = SeekBar(this).apply {
+            max = steps
+            progressTintList = ColorStateList.valueOf(Pal.ACC)
+            thumbTintList = ColorStateList.valueOf(Pal.ACC)
+            progressBackgroundTintList = ColorStateList.valueOf(Pal.LINE)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
+                    val value = fromIndex(p)
+                    v.text = fmt(value)
+                    if (fromUser && !suppressParam) {
+                        set(value)
+                        App.presetIdx = -1
+                        refreshPresets()
+                        refreshDirty()
+                    }
+                }
+                override fun onStartTrackingTouch(s: SeekBar) {}
+                override fun onStopTrackingTouch(s: SeekBar) {}
+            })
+        }
+        row.add(sb, 0, WRAP, 1f)
+        row.add(v, dp(72), WRAP)
+        refreshers.add {
+            val x = get()
+            sb.progress = toIndex(x)
+            v.text = fmt(x)
+        }
+        return row
+    }
+
+    private fun slot(title: String, color: Int, onPick: () -> Unit): Slot {
+        val row = hbox()
+        val ic = ImageView(this).apply {
+            setImageDrawable(Icon(Icon.Kind.MUSIC, color))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded((color and 0x00FFFFFF) or 0x30000000, 12)
+        }
+        row.add(ic, dp(42), dp(42))
+        row.gapW(12)
+        val col = vbox()
+        col.add(caps(title, color).apply { textSize = 10f })
+        val name = label("Chưa chọn", 14f, Pal.SUB, SANS_MEDIUM).apply {
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
+        }
+        val info = label("", 11f, Pal.SUB).apply { maxLines = 1 }
+        col.add(name, topDp = 1)
+        col.add(info)
+        row.add(col, 0, WRAP, 1f)
+        row.gapW(8)
+        val btn = pill("Chọn", Btn.OUTLINE) { onPick() }.apply {
+            textSize = 12.5f; minHeight = dp(34); setPadding(dp(14), dp(4), dp(14), dp(4))
+        }
+        row.add(btn, WRAP, WRAP)
+        return Slot(row, name, info, btn)
     }
 
     // ───────────────────────────── dựng giao diện ─────────────────────────────
@@ -213,8 +323,16 @@ class MainActivity : Activity() {
         top.add(chip("EBU R128 · True Peak", Pal.SUB, Pal.CARD2).apply { textSize = 10.5f }, WRAP, WRAP)
         content.add(top)
 
-        // Bài nhạc
+        // Bài nhạc: 1 file hoặc 2 stem
         val track = compactCard()
+        val thead = hbox()
+        thead.add(caps("Bài nhạc"), 0, WRAP, 1f)
+        val ms = segmented(listOf("1 FILE", "2 STEM"), false, 11.5f) { setStemMode(it == 1) }
+        modeSeg = ms.second
+        thead.add(ms.first, WRAP, WRAP)
+        track.add(thead)
+
+        singleBox = vbox()
         val trow = hbox()
         val note = ImageView(this).apply {
             setImageDrawable(Icon(Icon.Kind.MUSIC, Pal.ACC))
@@ -236,18 +354,34 @@ class MainActivity : Activity() {
             textSize = 13f; minHeight = dp(38); setPadding(dp(16), dp(6), dp(16), dp(6))
         }
         trow.add(pickBtn, WRAP, WRAP)
-        track.add(trow)
+        singleBox.add(trow)
+        track.add(singleBox, topDp = 12)
+
+        stemBox = vbox().apply { visibility = View.GONE }
+        vocalSlot = slot("Giọng hát", Pal.TEAL) { pickStem(REQ_VOCAL) }
+        beatSlot = slot("Nhạc nền", Pal.ACC) { pickStem(REQ_BEAT) }
+        stemBox.add(vocalSlot.root)
+        stemBox.add(beatSlot.root, topDp = 10)
+        stemBox.add(pill("Chọn cùng lúc 2 file Vocals + Instrumental", Btn.SOFT) { pickStem(REQ_STEMS) }.apply {
+            textSize = 12.5f; minHeight = dp(38)
+        }, topDp = 12)
+        stemBox.add(label("Tự nhận file có chữ “Vocals” là giọng, “Instrumental” là nhạc nền", 11f, Pal.SUB), topDp = 6)
+        track.add(stemBox, topDp = 12)
         content.add(track, topDp = 14)
 
         // Monitor: sóng âm + phát + A/B + số đo
         val mon = compactCard()
         val mhead = hbox()
         mhead.add(caps("Nghe thử"), 0, WRAP, 1f)
-        val seg = segmented("GỐC", "MASTER", { setAB(false) }, { setAB(true) })
-        abOrig = seg.second
-        abMaster = seg.third
-        mhead.add(seg.first, WRAP, WRAP)
+        val s2 = segmented(listOf("GỐC", "MASTER"), false) { setAB(it) }
+        ab2Box = s2.first
+        ab2 = s2.second
+        mhead.add(ab2Box, WRAP, WRAP)
         mon.add(mhead)
+        val s4 = segmented(listOf("Gốc", "Master", "Giọng gốc", "Giọng mới"), true, 11.5f) { setAB(it) }
+        ab4Box = s4.first.apply { visibility = View.GONE }
+        ab4 = s4.second
+        mon.add(ab4Box, topDp = 10)
 
         wave = WaveView(this).apply {
             onSeek = { f ->
@@ -272,7 +406,7 @@ class MainActivity : Activity() {
         transport.add(play1, dp(54), dp(54))
         transport.gapW(12)
         val nowBox = vbox()
-        nowText = label("Chưa có bài", 14f, Pal.INK, SANS_MEDIUM).apply { maxLines = 1 }
+        nowText = label("Chưa có bài", 14f, Pal.INK, SANS_MEDIUM).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         nowBox.add(nowText)
         nowBox.add(label("Chạm vào sóng âm để tua", 11.5f, Pal.SUB), topDp = 1)
         transport.add(nowBox, 0, WRAP, 1f)
@@ -326,48 +460,31 @@ class MainActivity : Activity() {
         hs.addView(chips)
         content.add(hs, topDp = 8)
 
-        // Tinh chỉnh: mỗi thông số một dòng
+        // Tinh chỉnh: TỔNG / GIỌNG / NHẠC NỀN
         val tune = compactCard()
-        val thead = hbox()
-        thead.add(caps("Tinh chỉnh"), 0, WRAP, 1f)
-        thead.add(label("Chạm tên để xem giải thích", 11f, Pal.SUB), WRAP, WRAP)
-        tune.add(thead)
+        val tuneHead = hbox()
+        tuneHead.add(caps("Tinh chỉnh"), 0, WRAP, 1f)
+        tuneHead.add(label("Chạm tên để xem giải thích", 11f, Pal.SUB), WRAP, WRAP)
+        tune.add(tuneHead)
+        val tb = segmented(listOf("TỔNG", "GIỌNG", "NHẠC NỀN"), true, 12f) { showTab(it) }
+        tabBox = tb.first.apply { visibility = View.GONE }
+        tabs = tb.second
+        tune.add(tabBox, topDp = 10)
+        repeat(3) { pages.add(vbox()) }
         Params.all.forEachIndexed { idx, prm ->
-            val row = hbox()
-            val name = label(prm.title, 12.5f, Pal.INK).apply {
-                maxLines = 2
-                isClickable = true
-                setOnClickListener { toast("${prm.title}: ${prm.hint}") }
-            }
-            row.add(name, dp(96), WRAP)
-            val sb = SeekBar(this).apply {
-                max = prm.steps
-                progressTintList = ColorStateList.valueOf(Pal.ACC)
-                thumbTintList = ColorStateList.valueOf(Pal.ACC)
-                progressBackgroundTintList = ColorStateList.valueOf(Pal.LINE)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
-                        val value = prm.fromIndex(p)
-                        paramVals[idx].text = prm.fmt(value)
-                        if (fromUser && !suppressParam) {
-                            prm.setter(App.settings, value)
-                            App.presetIdx = -1
-                            refreshPresets()
-                            refreshDirty()
-                        }
-                    }
-                    override fun onStartTrackingTouch(s: SeekBar) {}
-                    override fun onStopTrackingTouch(s: SeekBar) {}
-                })
-            }
-            paramBars.add(sb)
-            row.add(sb, 0, WRAP, 1f)
-            val v = label("", 12f, Pal.ACC, SANS_MEDIUM).apply { gravity = Gravity.END; maxLines = 1 }
-            paramVals.add(v)
-            row.add(v, dp(74), WRAP)
-            tune.add(row, topDp = if (idx == 0) 8 else 2)
+            val row = paramRow(prm.title, prm.hint, prm.steps, { prm.fromIndex(it) }, { prm.toIndex(it) }, prm.fmt,
+                { prm.getter(App.settings) }, { prm.setter(App.settings, it) })
+            pages[0].add(row, topDp = if (idx == 0) 0 else 2)
         }
+        StemParams.all.forEach { prm ->
+            val pg = pages[prm.tab]
+            val row = paramRow(prm.title, prm.hint, prm.steps, { prm.fromIndex(it) }, { prm.toIndex(it) }, prm.fmt,
+                { prm.getter(App.stem) }, { prm.setter(App.stem, it) })
+            pg.add(row, topDp = if (pg.childCount == 0) 0 else 2)
+        }
+        deverbInfo = label("", 11.5f, Pal.SUB)
+        pages[1].add(deverbInfo, topDp = 8)
+        for (pg in pages) tune.add(pg, topDp = 8)
         content.add(tune, topDp = 14)
 
         // Xuất file
@@ -377,10 +494,12 @@ class MainActivity : Activity() {
         etx.add(caps("Xuất file WAV"))
         etx.add(label("24-bit: lưu trữ, dựng video · 16-bit: có dither", 11.5f, Pal.SUB), topDp = 3)
         ehead.add(etx, 0, WRAP, 1f)
-        val bseg = segmented("24-bit", "16-bit",
-            { App.exportBits = 24; refreshExport() }, { App.exportBits = 16; refreshExport() })
-        bits24 = bseg.second
-        bits16 = bseg.third
+        val bseg = segmented(listOf("24-bit", "16-bit"), false) {
+            App.exportBits = if (it == 0) 24 else 16
+            refreshExport()
+        }
+        bits24 = bseg.second[0]
+        bits16 = bseg.second[1]
         ehead.add(bseg.first, WRAP, WRAP)
         exp.add(ehead)
         content.add(exp, topDp = 10)
@@ -442,6 +561,7 @@ class MainActivity : Activity() {
     // ───────────────────────────── làm mới giao diện ─────────────────────────────
 
     private fun refreshAll() {
+        refreshMode()
         refreshFile()
         refreshPresets()
         refreshParams()
@@ -452,20 +572,53 @@ class MainActivity : Activity() {
         setBusy(App.busy, null, 0f)
     }
 
+    private fun refreshMode() {
+        val st = App.stemMode
+        modeSeg.forEachIndexed { i, t -> styleSeg(t, (i == 1) == st) }
+        singleBox.visibility = if (st) View.GONE else View.VISIBLE
+        stemBox.visibility = if (st) View.VISIBLE else View.GONE
+        ab2Box.visibility = if (st) View.GONE else View.VISIBLE
+        ab4Box.visibility = if (st) View.VISIBLE else View.GONE
+        tabBox.visibility = if (st) View.VISIBLE else View.GONE
+        if (!st) App.tuneTab = 0
+        showTab(App.tuneTab)
+    }
+
+    private fun showTab(i: Int) {
+        App.tuneTab = i
+        pages.forEachIndexed { k, p -> p.visibility = if (k == i) View.VISIBLE else View.GONE }
+        tabs.forEachIndexed { k, t -> styleSeg(t, k == i) }
+    }
+
+    private fun fillSlot(s: Slot, d: Decoded?, n: String) {
+        if (d == null) {
+            s.name.text = "Chưa chọn"
+            s.name.setTextColor(Pal.SUB)
+            s.info.text = ""
+        } else {
+            s.name.text = n
+            s.name.setTextColor(Pal.INK)
+            s.info.text = String.format(java.util.Locale.US, "%.1f kHz · %s", d.sampleRate / 1000.0, fmtTime(d.frames, d.sampleRate))
+        }
+        s.btn.text = if (d == null) "Chọn" else "Đổi"
+    }
+
     private fun refreshFile() {
-        val d = App.decoded
+        val d = App.single
         if (d == null) {
             fileName.text = "Chưa chọn bài"
             fileInfo.text = "MP3 · M4A · WAV · FLAC · OGG"
             pickBtn.text = "Chọn bài"
         } else {
-            fileName.text = App.name
+            fileName.text = App.singleName
             val chs = if (d.srcChannels == 1) "Mono" else "Stereo"
             val khz = String.format(java.util.Locale.US, "%.1f kHz", d.sampleRate / 1000.0)
             fileInfo.text = "$khz · $chs · ${fmtTime(d.frames, d.sampleRate)}"
             pickBtn.text = "Đổi bài"
         }
-        for (v in needFile) v.alpha = if (d != null) 1f else 0.5f
+        fillSlot(vocalSlot, App.vocal, App.vocalName)
+        fillSlot(beatSlot, App.beat, App.beatName)
+        for (v in needFile) v.alpha = if (App.decoded != null) 1f else 0.5f
     }
 
     private fun refreshPresets() {
@@ -482,17 +635,14 @@ class MainActivity : Activity() {
 
     private fun refreshParams() {
         suppressParam = true
-        Params.all.forEachIndexed { i, p ->
-            val v = p.getter(App.settings)
-            paramBars[i].progress = p.toIndex(v)
-            paramVals[i].text = p.fmt(v)
-        }
+        for (r in refreshers) r()
         suppressParam = false
     }
 
     private fun settingsChanged(): Boolean {
         val a = App.masteredWith ?: return true
         val b = App.settings
+        if (App.stemMode && !App.stem.sameAs(App.masteredStem)) return true
         return a.targetLufs != b.targetLufs || a.ceilingDb != b.ceilingDb || a.bassDb != b.bassDb ||
             a.mudDb != b.mudDb || a.presenceDb != b.presenceDb || a.airDb != b.airDb ||
             a.warmth != b.warmth || a.comp != b.comp || a.width != b.width
@@ -503,6 +653,11 @@ class MainActivity : Activity() {
         val mastered = App.masterL != null
         val changed = mastered && settingsChanged()
         dirtyNote.text = when {
+            !has && App.stemMode -> when {
+                App.vocal == null && App.beat == null -> "Nạp 2 stem: giọng hát + nhạc nền"
+                App.vocal == null -> "Còn thiếu stem giọng hát"
+                else -> "Còn thiếu stem nhạc nền"
+            }
             !has -> "Chọn bài nhạc để bắt đầu"
             changed -> "Cài đặt đã đổi — bấm MASTER LẠI để áp dụng"
             mastered -> "✓ Đã master · bấm ▶ để nghe, ⤓ để lưu"
@@ -524,13 +679,14 @@ class MainActivity : Activity() {
             b.isEnabled = has
             b.alpha = if (has) 1f else 0.4f
         }
-        val m = p.useMaster && App.masterL != null
-        styleSeg(abOrig, !m)
-        styleSeg(abMaster, m)
-        abMaster.alpha = if (App.masterL != null) 1f else 0.4f
+        val eff = if (has) p.effective() else Player.ORIG
+        ab2.forEachIndexed { i, t -> styleSeg(t, i == eff, i == 0 || p.has(i)) }
+        ab4.forEachIndexed { i, t -> styleSeg(t, i == eff, i == 0 || p.has(i)) }
         nowText.text = when {
             !has -> "Chưa có bài"
-            m -> if (App.matchLevel) "Đang nghe: Master (đã cân)" else "Đang nghe: Master"
+            eff == Player.MASTER -> if (App.matchLevel) "Đang nghe: Master (đã cân)" else "Đang nghe: Master"
+            eff == Player.VOCAL_ORIG -> "Đang nghe: Giọng gốc"
+            eff == Player.VOCAL_NEW -> "Đang nghe: Giọng mới"
             else -> "Đang nghe: Bản gốc"
         }
         val on = App.matchLevel
@@ -548,7 +704,18 @@ class MainActivity : Activity() {
         saveBtn.setImageDrawable(Icon(Icon.Kind.SAVE, if (ok) Pal.ACC else Pal.INK))
     }
 
+    private fun n1(v: Double) = if (v <= -99) "—" else String.format(java.util.Locale.US, "%.1f", v).replace('-', '−')
+
     private fun refreshStats() {
+        val da = App.stemRes?.deverb
+        deverbInfo.text = if (da == null || (App.stem.deReverb <= 0.01 && App.stem.deDelay <= 0.01)) {
+            "Vang/delay có sẵn của Suno được đo khi bấm MASTER"
+        } else {
+            val rv = if (da.dryLike) "giọng khô sẵn" else (if (da.reverbMeasured) "" else "~") +
+                String.format(java.util.Locale.US, "vang ~%.1f s", da.t60)
+            val dl = if (da.delayFound) String.format(java.util.Locale.US, "delay %.0f ms", da.delayMs) else "không có delay"
+            "Giọng gốc: $rv · $dl\nSo sánh: Giọng gốc ↔ Giọng mới"
+        }
         val r = App.result
         if (r == null) {
             for (i in 0..2) { tileVal[i].text = "—"; tileSub[i].text = "" }
@@ -557,12 +724,11 @@ class MainActivity : Activity() {
             tileSub[2].text = "giảm tối đa"
             return
         }
-        fun n(v: Double) = if (v <= -99) "—" else String.format(java.util.Locale.US, "%.1f", v).replace('-', '−')
-        tileVal[0].text = n(r.outLufs)
-        tileSub[0].text = "LUFS · gốc ${n(r.inLufs)}"
-        tileVal[1].text = n(r.outTpDb)
-        tileSub[1].text = "dBTP · gốc ${n(r.inTpDb)}"
-        tileVal[2].text = n(r.limiterGrDb)
+        tileVal[0].text = n1(r.outLufs)
+        tileSub[0].text = "LUFS · gốc ${n1(r.inLufs)}"
+        tileVal[1].text = n1(r.outTpDb)
+        tileSub[1].text = "dBTP · gốc ${n1(r.inTpDb)}"
+        tileVal[2].text = n1(r.limiterGrDb)
         tileSub[2].text = "dB giảm tối đa"
     }
 
@@ -598,38 +764,100 @@ class MainActivity : Activity() {
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 
+    // ───────────────────────────── trạng thái ─────────────────────────────
+
+    private fun clearMaster() {
+        val p = App.player
+        p.setMaster(null, null)
+        p.setVocalNew(null, null)
+        App.masterL = null; App.masterR = null
+        App.result = null; App.masteredWith = null
+        App.masterPeaks = null
+        App.stemRes = null; App.masteredStem = null
+    }
+
+    /** Chọn "bản gốc" đang dùng: 1 file, hoặc tổng thô của 2 stem. */
+    private fun rebuildActive() {
+        val d: Decoded?
+        if (!App.stemMode) {
+            d = App.single
+            App.name = App.singleName
+        } else {
+            val v = App.vocal
+            val b = App.beat
+            d = if (v != null && b != null) StemIO.mix(v, b) else null
+            App.name = if (d != null) StemIO.cleanBase(App.vocalName) else ""
+        }
+        App.decoded = d
+        App.origPeaks = d?.let { Peaks.ofShorts(it.left, it.right, it.frames) }
+        App.player.setSource(d)
+        if (App.stemMode && d != null) App.player.setVocalOrig(App.vocal)
+    }
+
+    private fun setStemMode(on: Boolean) {
+        if (App.busy || on == App.stemMode) { refreshMode(); return }
+        App.stemMode = on
+        App.player.setSource(null)
+        clearMaster()
+        rebuildActive()
+        App.player.sel = Player.MASTER
+        refreshAll()
+    }
+
     // ───────────────────────────── hành động ─────────────────────────────
 
     private fun choosePreset(i: Int) {
         App.presetIdx = i
-        val s = App.settings
-        Presets.all[i].applyTo(s)
+        Presets.all[i].applyTo(App.settings)
+        StemDefs.all[i].applyTo(App.stem)
         refreshPresets()
         refreshParams()
         refreshDirty()
     }
 
-    private fun pickFile() {
+    private fun openPicker(req: Int, multiple: Boolean) {
         if (App.busy) return
         val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "audio/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "application/ogg", "video/mp4"))
+            if (multiple) putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         try {
-            startActivityForResult(i, REQ_OPEN)
+            startActivityForResult(i, req)
         } catch (e: Exception) {
             toast("Không mở được trình chọn file")
         }
     }
 
+    private fun pickFile() = openPicker(REQ_OPEN, false)
+
+    private fun pickStem(req: Int) = openPicker(req, req == REQ_STEMS)
+
+    @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK || data == null) return
         when (requestCode) {
-            REQ_OPEN -> loadFile(uri)
-            REQ_SAVE -> writeFile(uri)
+            REQ_STEMS -> {
+                val uris = ArrayList<Uri>()
+                val clip = data.clipData
+                if (clip != null) for (k in 0 until clip.itemCount) clip.getItemAt(k).uri?.let { uris.add(it) }
+                else data.data?.let { uris.add(it) }
+                when {
+                    uris.size >= 2 -> loadTwo(uris[0], uris[1])
+                    uris.size == 1 -> {
+                        val n = AudioIO.displayName(this, uris[0])
+                        val asVocal = if (StemIO.looksVocal(n)) true else if (StemIO.looksBeat(n)) false else App.vocal == null
+                        loadStem(asVocal, uris[0], null)
+                    }
+                }
+            }
+            REQ_OPEN -> data.data?.let { loadFile(it) }
+            REQ_VOCAL -> data.data?.let { loadStem(true, it, null) }
+            REQ_BEAT -> data.data?.let { loadStem(false, it, null) }
+            REQ_SAVE -> data.data?.let { writeFile(it) }
         }
     }
 
@@ -638,11 +866,12 @@ class MainActivity : Activity() {
             toast("Đang xử lý, đợi chút nhé")
             return
         }
+        if (App.stemMode) App.stemMode = false
         App.player.setSource(null)
-        App.decoded = null
-        App.masterL = null; App.masterR = null
-        App.result = null; App.masteredWith = null
-        App.origPeaks = null; App.masterPeaks = null
+        App.single = null
+        App.vocal = null; App.beat = null          // giải phóng bộ nhớ của 2 stem
+        clearMaster()
+        rebuildActive()
         wave.setData(null, null)
         refreshAll()
         System.gc()
@@ -651,25 +880,74 @@ class MainActivity : Activity() {
         setBusy(true, "Đang đọc “$name”…", 0f)
         Thread {
             try {
-                var last = 0L
-                val d = AudioIO.decode(this, uri) { f ->
-                    val now = System.currentTimeMillis()
-                    if (now - last > 100) {
-                        last = now
-                        ui.post { if (App.busy) busyBar.progress = (f * 1000).toInt() }
-                    }
-                    !cancel
-                }
-                val peaks = Peaks.ofShorts(d.left, d.right, d.frames)
+                val d = decodeWithProgress(uri)
                 ui.post {
-                    App.decoded = d
-                    App.name = name
-                    App.origPeaks = peaks
-                    App.player.setSource(d)
-                    App.player.useMaster = true
+                    App.single = d
+                    App.singleName = name
+                    rebuildActive()
+                    App.player.sel = Player.MASTER
                     setBusy(false, null, 0f)
-                    wave.setData(peaks, null)
                     refreshAll()
+                }
+            } catch (e: CancelledException) {
+                ui.post { setBusy(false, null, 0f); refreshAll() }
+            } catch (e: OutOfMemoryError) {
+                ui.post { setBusy(false, null, 0f); refreshAll(); toast("Bài quá dài so với bộ nhớ máy") }
+            } catch (e: Exception) {
+                ui.post { setBusy(false, null, 0f); refreshAll(); toast(e.message ?: "Lỗi đọc file") }
+            }
+        }.start()
+    }
+
+    private fun decodeWithProgress(uri: Uri): Decoded {
+        var last = 0L
+        return AudioIO.decode(this, uri) { f ->
+            val now = System.currentTimeMillis()
+            if (now - last > 100) {
+                last = now
+                ui.post { if (App.busy) busyBar.progress = (f * 1000).toInt() }
+            }
+            !cancel
+        }
+    }
+
+    private fun loadTwo(a: Uri, b: Uri) {
+        val na = AudioIO.displayName(this, a)
+        val nb = AudioIO.displayName(this, b)
+        val aIsVocal = StemIO.looksVocal(na) || StemIO.looksBeat(nb) || !(StemIO.looksVocal(nb) || StemIO.looksBeat(na))
+        val v = if (aIsVocal) a else b
+        val bt = if (aIsVocal) b else a
+        loadStem(true, v) { loadStem(false, bt, null) }
+    }
+
+    private fun loadStem(isVocal: Boolean, uri: Uri, then: (() -> Unit)?) {
+        if (App.busy) {
+            toast("Đang xử lý, đợi chút nhé")
+            return
+        }
+        if (!App.stemMode) App.stemMode = true
+        App.player.setSource(null)
+        App.single = null                           // giải phóng bộ nhớ bài 1 file
+        clearMaster()
+        if (isVocal) App.vocal = null else App.beat = null
+        rebuildActive()
+        refreshAll()
+        System.gc()
+        cancel = false
+        val name = AudioIO.displayName(this, uri)
+        setBusy(true, "Đang đọc ${if (isVocal) "giọng hát" else "nhạc nền"}: “$name”…", 0f)
+        Thread {
+            try {
+                var d = decodeWithProgress(uri)
+                val other = if (isVocal) App.beat else App.vocal
+                if (other != null && other.sampleRate != d.sampleRate) d = StemIO.resample(d, other.sampleRate)
+                ui.post {
+                    if (isVocal) { App.vocal = d; App.vocalName = name } else { App.beat = d; App.beatName = name }
+                    rebuildActive()
+                    App.player.sel = Player.MASTER
+                    setBusy(false, null, 0f)
+                    refreshAll()
+                    then?.invoke()
                 }
             } catch (e: CancelledException) {
                 ui.post { setBusy(false, null, 0f); refreshAll() }
@@ -687,30 +965,22 @@ class MainActivity : Activity() {
         val p = App.player
         p.pause()
         // giải phóng bản master cũ trước khi cấp bộ nhớ mới
-        p.setMaster(null, null)
-        App.masterL = null; App.masterR = null
-        App.masterPeaks = null
+        clearMaster()
         wave.setData(App.origPeaks, null)
         System.gc()
         cancel = false
         val settings = App.settings.copy()
+        val stemSnap = if (App.stemMode) App.stem.copy().also { it.keepVocal = true } else null
+        val v = App.vocal
+        val b = App.beat
+        if (stemSnap != null && (v == null || b == null)) return
         setBusy(true, "Chuẩn bị…", 0f)
         refreshPlayer()
         Thread {
             try {
-                val n = d.frames
-                val l = FloatArray(n)
-                val r = FloatArray(n)
-                val sc = 1f / 32768f
-                val dl = d.left
-                val dr = d.right
-                for (i in 0 until n) {
-                    l[i] = dl[i] * sc
-                    r[i] = dr[i] * sc
-                }
                 var last = 0L
                 val t0 = System.currentTimeMillis()
-                val res = Mastering.process(l, r, n, d.sampleRate.toDouble(), settings) { f, stage ->
+                val prog = Mastering.Progress { f, stage ->
                     val now = System.currentTimeMillis()
                     if (now - last > 100) {
                         last = now
@@ -724,16 +994,46 @@ class MainActivity : Activity() {
                     }
                     !cancel
                 }
-                val peaks = Peaks.ofFloats(l, r, n)
+                val n = d.frames
+                val sc = 1f / 32768f
+                val outL: FloatArray
+                val outR: FloatArray
+                val res: Mastering.Result
+                var sres: StemMix.Result? = null
+                if (stemSnap != null && v != null && b != null) {
+                    val vL = FloatArray(n); val vR = FloatArray(n)
+                    for (i in 0 until v.frames) { vL[i] = v.left[i] * sc; vR[i] = v.right[i] * sc }
+                    val bL = FloatArray(n); val bR = FloatArray(n)
+                    for (i in 0 until b.frames) { bL[i] = b.left[i] * sc; bR[i] = b.right[i] * sc }
+                    sres = StemMix.processInPlace(vL, vR, bL, bR, n, d.sampleRate.toDouble(), stemSnap, settings, prog)
+                    res = sres.master
+                    outL = bL
+                    outR = bR
+                } else {
+                    outL = FloatArray(n)
+                    outR = FloatArray(n)
+                    val dl = d.left
+                    val dr = d.right
+                    for (i in 0 until n) {
+                        outL[i] = dl[i] * sc
+                        outR[i] = dr[i] * sc
+                    }
+                    res = Mastering.process(outL, outR, n, d.sampleRate.toDouble(), settings, prog)
+                }
+                val peaks = Peaks.ofFloats(outL, outR, n)
                 val secs = (System.currentTimeMillis() - t0) / 1000.0
+                val fs = sres
                 ui.post {
-                    App.masterL = l
-                    App.masterR = r
+                    App.masterL = outL
+                    App.masterR = outR
                     App.result = res
                     App.masteredWith = settings
                     App.masterPeaks = peaks
-                    p.setMaster(l, r)
-                    p.useMaster = true
+                    App.stemRes = fs
+                    App.masteredStem = stemSnap
+                    p.setMaster(outL, outR)
+                    if (fs?.vocalL != null) p.setVocalNew(fs.vocalL, fs.vocalR)
+                    p.sel = Player.MASTER
                     applyMatch()
                     setBusy(false, null, 1f)
                     wave.setData(App.origPeaks, peaks)
@@ -743,7 +1043,10 @@ class MainActivity : Activity() {
             } catch (e: Mastering.CancelledException) {
                 ui.post { setBusy(false, null, 0f); refreshAll() }
             } catch (e: OutOfMemoryError) {
-                ui.post { setBusy(false, null, 0f); refreshAll(); toast("Không đủ bộ nhớ để xử lý bài này") }
+                ui.post {
+                    clearMaster(); setBusy(false, null, 0f); refreshAll()
+                    toast("Không đủ bộ nhớ để xử lý bài này")
+                }
             } catch (e: Exception) {
                 ui.post { setBusy(false, null, 0f); refreshAll(); toast(e.message ?: "Lỗi khi master") }
             }
@@ -764,15 +1067,19 @@ class MainActivity : Activity() {
         refreshPlayer()
     }
 
-    private fun setAB(master: Boolean) {
-        if (master && App.masterL == null) return
-        App.player.useMaster = master
+    private fun setAB(idx: Int) {
+        if (!App.player.has(idx)) {
+            if (idx == Player.VOCAL_NEW || idx == Player.MASTER) toast("Bấm MASTER trước để có bản này")
+            refreshPlayer()
+            return
+        }
+        App.player.sel = idx
         refreshPlayer()
     }
 
     private fun saveFile() {
         if (App.masterL == null || App.busy) return
-        val base = App.name.substringBeforeLast('.').ifBlank { "bai-nhac" }
+        val base = if (App.stemMode) StemIO.cleanBase(App.vocalName) else App.name.substringBeforeLast('.').ifBlank { "bai-nhac" }
         val i = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "audio/wav"
