@@ -18,17 +18,20 @@ public final class Mastering {
         public double warmth = 0.2;     // 0..1
         public double comp = 0.35;      // 0..1
         public double width = 1.1;      // 0.5..1.6
+        public double rebalance = 0;    // 0..1 cân bằng lại dải âm (sửa lỗi tông/cộng hưởng/rè cao kiểu nhạc AI)
 
         public Settings copy() {
             Settings s = new Settings();
             s.targetLufs = targetLufs; s.ceilingDb = ceilingDb; s.bassDb = bassDb; s.mudDb = mudDb;
             s.presenceDb = presenceDb; s.airDb = airDb; s.warmth = warmth; s.comp = comp; s.width = width;
+            s.rebalance = rebalance;
             return s;
         }
     }
 
     public static final class Result {
         public double inLufs, inTpDb, outLufs, outTpDb, limiterGrDb;
+        public SpectralRebalance.Report rebalance;
     }
 
     public interface Progress {
@@ -68,6 +71,13 @@ public final class Mastering {
         res.inLufs = in[0];
         res.inTpDb = in[1];
         if (in[0] < -60) throw new SilentException();
+
+        // 1b) Cân bằng lại dải âm (trước mọi xử lý màu sắc)
+        double cs = 0.12;
+        if (s.rebalance > 0.01) {
+            res.rebalance = SpectralRebalance.process(L, R, n, fs, s.rebalance, p, 0.12, 0.27);
+            cs = 0.27;
+        }
 
         // 2) Chuỗi xử lý màu sắc, ở mức -18 LUFS để các ngưỡng hoạt động ổn định
         double pre = Math.pow(10, (-18 - in[0]) / 20);
@@ -138,7 +148,7 @@ public final class Mastering {
             L[i] = (float) (m + sd);
             R[i] = (float) (m - sd);
 
-            if ((i & (STEP - 1)) == 0) tick(p, 0.12 + 0.30 * i / (double) n, "Cân bằng & nén");
+            if ((i & (STEP - 1)) == 0) tick(p, cs + (0.42 - cs) * i / (double) n, "Cân bằng & nén");
         }
 
         // 3) Tìm độ lợi để đạt LUFS mục tiêu sau limiter (lặp, không ghi)

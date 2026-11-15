@@ -5,26 +5,16 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 
 /**
- * Trình phát so sánh nhiều nguồn, chuyển tức thì tại cùng vị trí:
- * ORIG = bản gốc, MASTER = bản master, VOCAL_ORIG = giọng gốc, VOCAL_NEW = giọng đã xử lý (chế độ 2 stem).
+ * Trình phát so sánh A/B: chuyển giữa bản gốc và bản master tức thì, cùng vị trí.
+ * Có tuỳ chọn cân âm lượng bản gốc cho bằng bản master để so sánh công bằng.
  */
 class Player(private val onEnded: () -> Unit) {
-    companion object {
-        const val ORIG = 0
-        const val MASTER = 1
-        const val VOCAL_ORIG = 2
-        const val VOCAL_NEW = 3
-    }
-
-    @Volatile var sel = MASTER
+    @Volatile var useMaster = true
     @Volatile var masterGain = 1f        // hạ bản master về bằng độ lớn bản gốc khi bật "cân âm lượng"
 
     private var src: Decoded? = null
     @Volatile private var masterL: FloatArray? = null
     @Volatile private var masterR: FloatArray? = null
-    @Volatile private var vocalOrig: Decoded? = null
-    @Volatile private var vocalNewL: FloatArray? = null
-    @Volatile private var vocalNewR: FloatArray? = null
 
     private var thread: Thread? = null
     @Volatile private var running = false
@@ -40,7 +30,6 @@ class Player(private val onEnded: () -> Unit) {
         stop()
         src = d
         masterL = null; masterR = null
-        vocalOrig = null; vocalNewL = null; vocalNewR = null
         pausedAt = 0
     }
 
@@ -48,18 +37,7 @@ class Player(private val onEnded: () -> Unit) {
         masterL = l; masterR = r
     }
 
-    fun setVocalOrig(d: Decoded?) { vocalOrig = d }
-    fun setVocalNew(l: FloatArray?, r: FloatArray?) { vocalNewL = l; vocalNewR = r }
-
-    fun has(i: Int) = when (i) {
-        ORIG -> src != null
-        MASTER -> masterL != null
-        VOCAL_ORIG -> vocalOrig != null
-        else -> vocalNewL != null
-    }
-
-    /** Nguồn thực sự đang phát (nguồn đã chọn chưa có thì về bản gốc). */
-    fun effective(): Int = if (has(sel)) sel else ORIG
+    fun hasMaster() = masterL != null
 
     /** Vị trí hiện tại (khung mẫu). */
     fun position(): Int {
@@ -107,31 +85,20 @@ class Player(private val onEnded: () -> Unit) {
             val sc = 1f / 32768f
             while (running && pos < n) {
                 val m = minOf(block, n - pos)
-                val s = effective()
-                val ml = masterL; val mr = masterR
-                val vo = vocalOrig
-                val vl = vocalNewL; val vr = vocalNewR
-                if (s == MASTER && ml != null && mr != null) {
+                val ml = masterL
+                val mr = masterR
+                if (useMaster && ml != null && mr != null) {
                     val g = masterGain
                     for (i in 0 until m) {
                         buf[2 * i] = ml[pos + i] * g
                         buf[2 * i + 1] = mr[pos + i] * g
                     }
-                } else if (s == VOCAL_NEW && vl != null && vr != null) {
-                    for (i in 0 until m) {
-                        val p = pos + i
-                        buf[2 * i] = if (p < vl.size) vl[p] else 0f
-                        buf[2 * i + 1] = if (p < vr.size) vr[p] else 0f
-                    }
                 } else {
-                    val dd = if (s == VOCAL_ORIG && vo != null) vo else d
-                    val l = dd.left
-                    val r = dd.right
-                    val nn = dd.frames
+                    val l = d.left
+                    val r = d.right
                     for (i in 0 until m) {
-                        val p = pos + i
-                        buf[2 * i] = if (p < nn) l[p] * sc else 0f
-                        buf[2 * i + 1] = if (p < nn) r[p] * sc else 0f
+                        buf[2 * i] = l[pos + i] * sc
+                        buf[2 * i + 1] = r[pos + i] * sc
                     }
                 }
                 val w = t.write(buf, 0, m * 2, AudioTrack.WRITE_BLOCKING)
